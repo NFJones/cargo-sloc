@@ -1,4 +1,13 @@
-# cargo-loc
+<div align="center">
+<h1 align="center">Cargo LoC</h1>
+<p align="center">
+  <a href="https://github.com/NFJones/cargo-loc/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/NFJones/cargo-loc?style=flat-square"></a>
+  <a href="https://github.com/NFJones/cargo-loc/forks"><img alt="GitHub forks" src="https://img.shields.io/github/forks/NFJones/cargo-loc?style=flat-square"></a>
+  <a href="https://github.com/NFJones/cargo-loc/issues"><img alt="GitHub issues" src="https://img.shields.io/github/issues/NFJones/cargo-loc?style=flat-square"></a>
+  <a href="https://github.com/NFJones/cargo-loc/actions"><img alt="Build status" src="https://img.shields.io/github/actions/workflow/status/NFJones/cargo-loc/ci.yml?style=flat-square"></a>
+</p>
+</div>
+</div>
 
 `cargo-loc` is a source line counter for supported files beneath a directory.
 It evaluates Cargo feature selections and Rust conditional-compilation
@@ -24,7 +33,7 @@ Install the current checkout with:
 
 ```sh
 just install
-cargo loc --help
+cargo loc --version
 ```
 
 Rust and Cargo 1.95 or newer are required.
@@ -73,6 +82,19 @@ cargo loc --json
 Package, feature, and standard target selectors follow Cargo syntax. Run
 `cargo loc --help` for the complete option list.
 
+## What is counted
+
+`cargo-loc` counts supported, non-ignored source files below the requested
+Root. It reports Cargo-owned files by package and files without a unique
+selected-package owner as `<root>`. Rust reached from selected Cargo targets is
+analyzed with Cargo features and Rust `cfg` attributes. Other Rust files and
+other recognized languages use lexical accounting, so they do not claim Cargo
+target, feature, cfg, import, or test provenance filtering.
+
+The supported-language catalog is based on Tokei; Rust uses cargo-loc's
+configuration-aware accountant. See [SPEC.md](SPEC.md) for the full language,
+ignore, ownership, and analysis rules.
+
 ## Output
 
 The default report is a deterministic terminal table:
@@ -86,40 +108,21 @@ The default report is a deterministic terminal table:
 ╰───────────┴──────────┴───────┴───────┴───────┴────────┴──────────┴──────┴──────╯
 ```
 
-Rows aggregate each resolved Scope and language. Package-owned rows use their
-Cargo package name; files with no unique selected-Package owner use `<root>`.
-Each physical file contributes to exactly one Scope and one language route,
-even through symlink, hard-link, module, or Package aliases. `Code` and `Test`
-are exclusive for configuration-aware Rust: source active in any production
-context is `Code`, while source active only in test or benchmark contexts is
-`Test`. `Comments` may overlap either category. `Total` is the physical-line
-count (and therefore equals `Lines`); Scopes are sorted by descending aggregate
-Total, with their language rows sorted by descending Total. A Scope name is
-printed only on its first language row. Language accountants that cannot
-determine Cargo-aware test provenance display `n/a` in the `Test` column; a
-total containing such a row is also `n/a`. JSON schema version 3 represents
-those values as `null`, uses explicit Package/Root scope objects, and labels
-each row's accounting engine and precision.
-The table is unstyled, contains no ANSI escape sequences, and is safe to
-redirect to a file. JSON output includes normalized selection, Project targets,
-context-specific features, Package identities, totals, and warnings.
+Rows aggregate a scope (a Cargo package or `<root>`) and language. The columns
+mean:
 
-Rust reached from selected Cargo targets uses cargo-loc's configuration-aware
-syntax and module analysis. Other `.rs` files appear as `Rust (unconfigured)`
-with no claim of Cargo reachability or cfg/test filtering. Other recognized
-languages use the pinned Tokei 14 catalog and byte-oriented lexical counting.
-Those rows do not claim Cargo target, feature, cfg, import, or test provenance
-filtering, so their `Test` value is `n/a`. Embedded source is summarized into
-its host-language row and NUL-bearing binary files are ignored.
+- **Files:** unique source files in the row.
+- **Total / Lines:** physical lines; `Total` is not a sum of the categories.
+- **Blanks:** blank lines.
+- **Comments:** lines containing comments; they can also contain code.
+- **Code:** production code lines.
+- **Test:** Rust lines active only for test or benchmark targets.
 
-Discovery performs one Root-local walk and honors nested `.gitignore` and
-`.ignore` files without inheriting ancestor or global excludes. VCS metadata
-and `.cargo-loc` state are structural exceptions. Other supported files,
-including files outside Cargo projects and files in generated, vendored, or
-build-output directories, are included unless a supported ignore file excludes
-them. Directory symlinks are not followed; in-Root file aliases are globally
-deduplicated, including hard links where the operating system exposes physical
-identity, and out-of-Root aliases are skipped.
+Lexically counted languages show `n/a` for **Test** because that provenance is
+not available. The table's final Test total sums the rows with known Test
+counts. JSON represents unavailable per-row Test counts as `null`. Output is
+deterministic, unstyled, and safe to redirect; use `--json` for machine-readable
+output.
 
 ## Analysis boundary
 
@@ -137,17 +140,9 @@ scripts, or expand macros. In particular:
 - unsupported-language files and dependency source outside the Root are
   ignored.
 
-See [SPEC.md](SPEC.md) for normative behavior and
+See [SPEC.md](SPEC.md) for normative behavior, including the complete JSON
+contract and detailed ignore, identity, cache, and scanner rules. See
 [docs/PERFORMANCE.md](docs/PERFORMANCE.md) for benchmark methodology.
-
-Successful reports are stored in a versioned, fail-closed snapshot beneath
-`PATH/.cargo-loc/`. A snapshot is reused only after validating the normalized
-selection, project inputs, Cargo configuration, relevant environment,
-toolchain identity, target specifications, symlink targets, JSON schema,
-generic inventory policy, and Tokei catalog and adapter versions. Corrupt,
-outdated, or uncertain records are ignored and recomputed. Library clients
-that serve repeated requests can use `ResidentSession` to retain validated
-Cargo/toolchain state and unchanged per-file analysis between refreshes.
 
 ## Development
 
@@ -161,9 +156,6 @@ just install-smoke
 ```
 
 `just release-check` runs the complete local release-readiness suite. The
-`just install-smoke` recipe validates the generated `.crate` archive, installs
-only its extracted source in isolated Cargo state, and exercises both direct
-and Cargo-subcommand invocation. The
 project is licensed under the Apache License, Version 2.0; see
 [COPYING](COPYING). Release history is recorded in [CHANGELOG.md](CHANGELOG.md).
 

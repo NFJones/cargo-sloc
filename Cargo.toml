@@ -5,7 +5,7 @@ edition = "2024"
 rust-version = "1.95"
 description = "A Cargo subcommand for configuration-aware Rust source line counts"
 license = "Apache-2.0"
-repository = "https://github.com/neil/cargo-loc"
+repository = "https://github.com/NFJones/cargo-loc"
 readme = "README.md"
 include = [
     "/src/**",

@@ -1,0 +1,12 @@
+[package]
+name = "cargo-loc"
+version = "0.1.0"
+edition = "2024"
+description = "A Cargo subcommand for configuration-aware Rust source line counts"
+license = "Apache-2.0"
+repository = "https://github.com/neil/cargo-loc"
+readme = "README.md"
+keywords = ["cargo", "loc", "rust", "cfg", "features"]
+categories = ["development-tools::cargo-plugins", "development-tools"]
+
+[dependencies]

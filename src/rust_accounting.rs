@@ -1,10 +1,13 @@
 //! Cfg-aware Rust source projection and physical-line accounting.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::thread;
 
+use ra_ap_syntax::{Edition, ast};
+
 use crate::error::AppError;
-use crate::model::{ContextKind, Counts};
+use crate::model::{ContextKind, Counts, TestCount};
+use crate::rust_analysis::FileAnalysis;
 use crate::rust_source::{PackageSources, ReachableSource, SourceInventory};
 
 /// Package-level Rust counts in deterministic source-inventory order.
@@ -149,10 +152,20 @@ fn account_jobs(
 }
 
 fn account_source(package: &PackageSources, source: &ReachableSource) -> Result<Counts, AppError> {
-    let line_count = source
-        .evaluations
-        .values()
-        .next()
+    account_claims(&[(package, source)])
+}
+
+/// Accounts one physical Rust file across every Package/context claim.
+///
+/// Production provenance wins across the complete claim union. The returned
+/// counts exclude the `Files` increment so callers can enforce physical-file
+/// identity exactly once.
+pub(crate) fn account_claims(
+    claims: &[(&PackageSources, &ReachableSource)],
+) -> Result<Counts, AppError> {
+    let line_count = claims
+        .first()
+        .and_then(|(_, source)| source.evaluations.values().next())
         .map_or(0, |evaluation| evaluation.lines.len());
     if line_count == 0 {
         return Ok(Counts::default());
@@ -160,35 +173,37 @@ fn account_source(package: &PackageSources, source: &ReachableSource) -> Result<
 
     let mut flags = vec![LineFlags::default(); line_count];
 
-    for context_id in &source.contexts {
-        let context = package.semantic_contexts.get(context_id.0).ok_or_else(|| {
-            AppError::ReportInvariant(format!(
-                "source `{}` references missing semantic context {}",
-                source.path.display(),
-                context_id.0
-            ))
-        })?;
-        let evaluation = source.evaluations.get(context_id).ok_or_else(|| {
-            AppError::ReportInvariant(format!(
-                "source `{}` has semantic context {} without a cached evaluation",
-                source.path.display(),
-                context_id.0
-            ))
-        })?;
-        if evaluation.lines.len() != line_count {
-            return Err(AppError::ReportInvariant(format!(
-                "source `{}` has inconsistent evaluated line counts",
-                source.path.display()
-            )));
-        }
-        for (flags, projection) in flags.iter_mut().zip(&evaluation.lines) {
-            flags.blank |= projection.blank;
-            flags.comment |= projection.comment;
-            if projection.code {
-                if context.provenance == ContextKind::Production {
-                    flags.production = true;
-                } else {
-                    flags.test = true;
+    for (package, source) in claims {
+        for context_id in &source.contexts {
+            let context = package.semantic_contexts.get(context_id.0).ok_or_else(|| {
+                AppError::ReportInvariant(format!(
+                    "source `{}` references missing semantic context {}",
+                    source.path.display(),
+                    context_id.0
+                ))
+            })?;
+            let evaluation = source.evaluations.get(context_id).ok_or_else(|| {
+                AppError::ReportInvariant(format!(
+                    "source `{}` has semantic context {} without a cached evaluation",
+                    source.path.display(),
+                    context_id.0
+                ))
+            })?;
+            if evaluation.lines.len() != line_count {
+                return Err(AppError::ReportInvariant(format!(
+                    "source `{}` has inconsistent evaluated line counts",
+                    source.path.display()
+                )));
+            }
+            for (flags, projection) in flags.iter_mut().zip(&evaluation.lines) {
+                flags.blank |= projection.blank;
+                flags.comment |= projection.comment;
+                if projection.code {
+                    if context.provenance == ContextKind::Production {
+                        flags.production = true;
+                    } else {
+                        flags.test = true;
+                    }
                 }
             }
         }
@@ -199,7 +214,9 @@ fn account_source(package: &PackageSources, source: &ReachableSource) -> Result<
         if line.production {
             counts.code = checked_increment(counts.code, "counting production code lines")?;
         } else if line.test {
-            counts.test = checked_increment(counts.test, "counting test-only code lines")?;
+            counts.test = counts
+                .test
+                .checked_increment("counting test-only code lines")?;
         }
         if line.comment {
             counts.comments = checked_increment(counts.comments, "counting comment lines")?;
@@ -209,6 +226,52 @@ fn account_source(package: &PackageSources, source: &ReachableSource) -> Result<
         }
         if line.production || line.test || line.comment || line.blank {
             counts.lines = checked_increment(counts.lines, "counting included lines")?;
+        }
+    }
+    Ok(counts)
+}
+
+/// Accounts standalone Rust syntax without Cargo cfg or test provenance.
+pub(crate) fn account_unconfigured(path: &Path, bytes: &[u8]) -> Result<Counts, AppError> {
+    let source = std::str::from_utf8(bytes).map_err(|error| AppError::SourceEncoding {
+        path: path.to_path_buf(),
+        message: error.to_string(),
+    })?;
+    let parse_input = source.strip_prefix('\u{feff}').unwrap_or(source);
+    let parse = ast::SourceFile::parse(parse_input, Edition::CURRENT);
+    if !parse.errors().is_empty() {
+        return Err(AppError::SourceParse {
+            path: path.to_path_buf(),
+            edition: "2024".to_owned(),
+            message: parse
+                .errors()
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join("; "),
+        });
+    }
+    let analysis = FileAnalysis::lower(&parse.tree(), source, path)?;
+    let mut counts = Counts {
+        files: 1,
+        test: TestCount::Unavailable,
+        ..Counts::default()
+    };
+    for line in analysis.unconfigured_lines() {
+        if line.code {
+            counts.code = checked_increment(counts.code, "counting unconfigured Rust code lines")?;
+        }
+        if line.comment {
+            counts.comments =
+                checked_increment(counts.comments, "counting unconfigured Rust comment lines")?;
+        }
+        if line.blank {
+            counts.blanks =
+                checked_increment(counts.blanks, "counting unconfigured Rust blank lines")?;
+        }
+        if line.code || line.comment || line.blank {
+            counts.lines =
+                checked_increment(counts.lines, "counting unconfigured Rust physical lines")?;
         }
     }
     Ok(counts)

@@ -6,11 +6,11 @@ use std::process::{Command, Output};
 use serde_json::Value;
 use tempfile::TempDir;
 
-const TABLE_EMPTY: &str = "╭─────────┬──────────┬───────┬───────┬────────┬──────────┬──────┬──────╮\n\
-│ Package ┆ Language ┆ Files ┆ Lines ┆ Blanks ┆ Comments ┆ Code ┆ Test │\n\
-╞═════════╪══════════╪═══════╪═══════╪════════╪══════════╪══════╪══════╡\n\
-│ Total   ┆ All      ┆     0 ┆     0 ┆      0 ┆        0 ┆    0 ┆    0 │\n\
-╰─────────┴──────────┴───────┴───────┴────────┴──────────┴──────┴──────╯\n";
+const TABLE_EMPTY: &str = "╭─────────┬──────────┬───────┬───────┬───────┬────────┬──────────┬──────┬──────╮\n\
+│ Package ┆ Language ┆ Files ┆ Total ┆ Lines ┆ Blanks ┆ Comments ┆ Code ┆ Test │\n\
+╞═════════╪══════════╪═══════╪═══════╪═══════╪════════╪══════════╪══════╪══════╡\n\
+│ Total   ┆ All      ┆     0 ┆     0 ┆     0 ┆      0 ┆        0 ┆    0 ┆    0 │\n\
+╰─────────┴──────────┴───────┴───────┴───────┴────────┴──────────┴──────┴──────╯\n";
 
 #[test]
 fn direct_and_cargo_style_invocation_are_equivalent() {
@@ -85,27 +85,38 @@ fn json_normalizes_repeated_feature_target_and_selector_options() {
         configuration["target_excludes"],
         serde_json::json!(["bench"])
     );
-    let packages = value["packages"].as_array().expect("packages array");
-    assert_eq!(packages.len(), 1);
-    assert_eq!(packages[0]["name"], "normalized");
-    assert_eq!(packages[0]["language"], "Rust");
+    let rows = value["rows"].as_array().expect("rows array");
+    assert_eq!(rows.len(), 2);
+    let rust = rows
+        .iter()
+        .find(|package| package["language"] == "Rust")
+        .expect("Rust row");
+    let toml = rows
+        .iter()
+        .find(|package| package["language"] == "TOML")
+        .expect("TOML row");
+    assert_eq!(rust["scope"]["name"], "normalized");
     let manifest_path = root.path().join("Cargo.toml");
     assert_eq!(
-        packages[0]["manifest_path"].as_str(),
+        rust["scope"]["manifest_path"].as_str(),
         manifest_path.to_str()
     );
-    assert_eq!(packages[0]["files"], 1);
-    assert_eq!(packages[0]["lines"], 1);
-    assert_eq!(packages[0]["code"], 1);
+    assert_eq!(rust["files"], 1);
+    assert_eq!(rust["lines"], 1);
+    assert_eq!(rust["code"], 1);
+    assert_eq!(toml["files"], 1);
+    assert_eq!(toml["lines"], 13);
+    assert_eq!(toml["code"], 11);
+    assert!(toml["test"].is_null());
     assert_eq!(
         value["total"],
         serde_json::json!({
-            "files": 1,
-            "lines": 1,
-            "blanks": 0,
+            "files": 2,
+            "lines": 14,
+            "blanks": 2,
             "comments": 0,
-            "code": 1,
-            "test": 0
+            "code": 12,
+            "test": null
         })
     );
 }
@@ -162,9 +173,10 @@ fn help_and_version_exit_successfully_on_stdout() {
     let help = run(["--help"]);
     assert_success(&help);
     let help_text = String::from_utf8(help.stdout).expect("UTF-8 help");
-    assert!(help_text.contains("all eligible packages, all features, and all package targets"));
+    assert!(help_text.contains("Count supported, non-ignored source beneath PATH"));
+    assert!(help_text.contains("--root-files <ROOT_FILES>"));
     assert!(help_text.contains("cargo loc --no-default-features --features serde"));
-    assert!(help_text.contains("Emit schema-version 1 JSON instead of the terminal table"));
+    assert!(help_text.contains("Emit schema-version 3 JSON instead of the terminal table"));
     assert!(help.stderr.is_empty());
 
     let version = run(["--version"]);

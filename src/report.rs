@@ -8,11 +8,16 @@ use comfy_table::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::accountant::Language;
+use crate::accountant::{
+    AccountingEngine, AccountingPrecision, AccountingRow, FileContribution, LanguageId, ScopeId,
+};
 use crate::configuration::ConfiguredInventory;
 use crate::error::AppError;
-use crate::model::{BuildRole, ContextKind, Counts, Selection};
+use crate::model::{BuildRole, ContextKind, Counts, RootFilePolicy, Selection, TestCount};
 use crate::rust_accounting::AccountingInventory;
+
+/// Current public JSON report schema version.
+pub(crate) const JSON_SCHEMA_VERSION: u8 = 3;
 
 /// One stable nonfatal diagnostic.
 #[derive(Clone, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
@@ -23,21 +28,19 @@ pub struct Warning {
     pub message: String,
 }
 
-/// One Package/language aggregation row.
+/// One Scope/language aggregation row.
 #[derive(Clone, Debug)]
-pub struct PackageRow {
+pub struct ScopeRow {
     /// Stable display label.
     pub label: String,
-    /// Cargo Package name.
-    pub name: String,
-    /// Cargo's opaque Package ID.
-    pub package_id: String,
-    /// Absolute owning Project root.
-    pub project_root: PathBuf,
-    /// Absolute Package manifest path.
-    pub manifest_path: PathBuf,
+    /// Stable Package or Root identity.
+    pub scope: ScopeId,
     /// Accounted language.
-    pub language: Language,
+    pub language: LanguageId,
+    /// Implementation that produced the row.
+    pub engine: AccountingEngine,
+    /// Semantic precision of the row.
+    pub precision: AccountingPrecision,
     /// Common measures.
     pub counts: Counts,
 }
@@ -47,9 +50,9 @@ pub struct PackageRow {
 pub struct Report {
     /// Normalized invocation selection.
     pub selection: Selection,
-    /// Deterministically ordered Package rows.
-    pub packages: Vec<PackageRow>,
-    /// Arithmetic sum of Package rows.
+    /// Deterministically ordered Scope rows.
+    pub packages: Vec<ScopeRow>,
+    /// Arithmetic sum of Scope rows.
     pub total: Counts,
     /// Deterministically ordered warnings.
     pub warnings: Vec<Warning>,
@@ -141,49 +144,123 @@ impl Report {
 
     /// Adds Package-level language counts produced by Accountants.
     pub fn apply_accounting(&mut self, accounting: &AccountingInventory) -> Result<(), AppError> {
-        let duplicate_names = accounting
+        let rows = accounting
             .packages
             .iter()
             .filter(|package| package.counts.files > 0)
-            .fold(BTreeMap::<&str, usize>::new(), |mut names, package| {
-                *names.entry(&package.name).or_default() += 1;
-                names
-            });
-        self.packages = accounting
-            .packages
-            .iter()
-            .filter(|package| package.counts.files > 0)
-            .map(|package| {
-                let project_root = self.package_projects.get(&package.id).ok_or_else(|| {
-                    AppError::ReportInvariant(format!(
-                        "Package `{}` has counts but no owning Project",
-                        package.id
-                    ))
-                })?;
-                Ok(PackageRow {
-                    label: package_label(
-                        &self.selection,
-                        package,
-                        duplicate_names
-                            .get(package.name.as_str())
-                            .copied()
-                            .unwrap_or(0)
-                            > 1,
-                    ),
-                    name: package.name.clone(),
-                    package_id: package.id.clone(),
-                    project_root: project_root.clone(),
-                    manifest_path: package.manifest_path.clone(),
-                    language: Language::Rust,
-                    counts: package.counts,
-                })
+            .map(|package| AccountingRow {
+                package_id: package.id.clone(),
+                package_name: package.name.clone(),
+                manifest_path: package.manifest_path.clone(),
+                language: LanguageId::RUST,
+                engine: AccountingEngine::Rust,
+                precision: AccountingPrecision::ConfigurationAware,
+                counts: package.counts,
             })
-            .collect::<Result<_, AppError>>()?;
+            .collect::<Vec<_>>();
+        self.apply_rows(&rows)
+    }
+
+    /// Replaces report rows with validated per-file routed contributions.
+    pub(crate) fn apply_contributions(
+        &mut self,
+        contributions: &[FileContribution],
+    ) -> Result<(), AppError> {
+        let mut aggregated =
+            BTreeMap::<(ScopeId, LanguageId, AccountingEngine, AccountingPrecision), Counts>::new();
+        for contribution in contributions {
+            if self.selection.root_files == RootFilePolicy::Exclude
+                && matches!(contribution.scope, ScopeId::Root { .. })
+            {
+                continue;
+            }
+            let counts = aggregated
+                .entry((
+                    contribution.scope.clone(),
+                    contribution.language,
+                    contribution.engine,
+                    contribution.precision,
+                ))
+                .or_default();
+            *counts = counts.checked_add(contribution.counts)?;
+        }
+        self.apply_scope_counts(aggregated)
+    }
+
+    /// Replaces report rows with language-neutral Accountant output.
+    pub fn apply_rows(&mut self, rows: &[AccountingRow]) -> Result<(), AppError> {
+        let mut aggregated =
+            BTreeMap::<(ScopeId, LanguageId, AccountingEngine, AccountingPrecision), Counts>::new();
+        for row in rows.iter().filter(|row| row.counts.files > 0) {
+            let project_root = self.package_projects.get(&row.package_id).ok_or_else(|| {
+                AppError::ReportInvariant(format!(
+                    "Package `{}` has counts but no owning Project",
+                    row.package_id
+                ))
+            })?;
+            let scope = ScopeId::Package {
+                id: row.package_id.clone(),
+                name: row.package_name.clone(),
+                manifest_path: row.manifest_path.clone(),
+                project_root: project_root.clone(),
+            };
+            let counts = aggregated
+                .entry((scope, row.language, row.engine, row.precision))
+                .or_default();
+            *counts = counts.checked_add(row.counts)?;
+        }
+        self.apply_scope_counts(aggregated)
+    }
+
+    fn apply_scope_counts(
+        &mut self,
+        aggregated: BTreeMap<(ScopeId, LanguageId, AccountingEngine, AccountingPrecision), Counts>,
+    ) -> Result<(), AppError> {
+        let duplicate_names = aggregated
+            .keys()
+            .filter_map(|(scope, ..)| match scope {
+                ScopeId::Package { id, name, .. } => Some((name.clone(), id.clone())),
+                ScopeId::Root { .. } => None,
+            })
+            .fold(
+                BTreeMap::<String, BTreeSet<String>>::new(),
+                |mut names, (name, id)| {
+                    names.entry(name).or_default().insert(id);
+                    names
+                },
+            );
+        self.packages = aggregated
+            .into_iter()
+            .filter(|(_, counts)| counts.files > 0)
+            .map(|((scope, language, engine, precision), counts)| ScopeRow {
+                label: scope_label(&self.selection, &scope, &duplicate_names),
+                scope,
+                language,
+                engine,
+                precision,
+                counts,
+            })
+            .collect();
+        let scope_totals =
+            self.packages
+                .iter()
+                .try_fold(BTreeMap::<ScopeId, u64>::new(), |mut totals, row| {
+                    let total = totals.entry(row.scope.clone()).or_default();
+                    *total = total.checked_add(row.counts.lines).ok_or_else(|| {
+                        AppError::ReportInvariant(format!(
+                            "Scope `{}` line total overflowed while sorting report rows",
+                            row.label
+                        ))
+                    })?;
+                    Ok::<_, AppError>(totals)
+                })?;
         self.packages.sort_by(|left, right| {
-            left.label
-                .cmp(&right.label)
+            scope_totals[&right.scope]
+                .cmp(&scope_totals[&left.scope])
+                .then_with(|| left.label.cmp(&right.label))
+                .then_with(|| left.scope.cmp(&right.scope))
+                .then_with(|| right.counts.lines.cmp(&left.counts.lines))
                 .then_with(|| left.language.cmp(&right.language))
-                .then_with(|| left.package_id.cmp(&right.package_id))
         });
         self.total = self
             .packages
@@ -199,11 +276,11 @@ impl Report {
         if self.selection.json {
             self.render_json()
         } else {
-            Ok(self.render_table().into_bytes())
+            self.render_table().map(String::into_bytes)
         }
     }
 
-    fn render_table(&self) -> String {
+    fn render_table(&self) -> Result<String, AppError> {
         let mut table = Table::new();
         table
             .load_preset(UTF8_FULL_CONDENSED)
@@ -212,27 +289,46 @@ impl Report {
                 text_cell("Package"),
                 text_cell("Language"),
                 numeric_cell("Files"),
+                numeric_cell("Total"),
                 numeric_cell("Lines"),
                 numeric_cell("Blanks"),
                 numeric_cell("Comments"),
                 numeric_cell("Code"),
                 numeric_cell("Test"),
             ]));
+        let mut previous_scope = None;
         for row in &self.packages {
+            let package_label = if previous_scope.as_ref() == Some(&row.scope) {
+                ""
+            } else {
+                &row.label
+            };
             table.add_row(report_table_row(
-                &row.label,
+                package_label,
                 &row.language.to_string(),
                 row.counts,
             ));
+            previous_scope = Some(row.scope.clone());
         }
-        table.add_row(report_table_row("Total", "All", self.total));
+        let table_total = Counts {
+            test: TestCount::Known(self.packages.iter().try_fold(0_u64, |total, row| {
+                match row.counts.test {
+                    TestCount::Known(value) => total.checked_add(value).ok_or(
+                        AppError::CountOverflow("adding available table test counts"),
+                    ),
+                    TestCount::Unavailable => Ok(total),
+                }
+            })?),
+            ..self.total
+        };
+        table.add_row(report_table_row("Total", "All", table_total));
 
         let mut output = table.to_string();
         while output.ends_with('\n') {
             output.pop();
         }
         output.push('\n');
-        output
+        Ok(output)
     }
 
     fn render_json(&self) -> Result<Vec<u8>, AppError> {
@@ -260,15 +356,16 @@ impl Report {
             .iter()
             .map(FeatureContext::to_json)
             .collect::<Result<Vec<_>, _>>()?;
-        let packages = self
+        let rows = self
             .packages
             .iter()
-            .map(PackageRow::to_json)
+            .map(ScopeRow::to_json)
             .collect::<Result<Vec<_>, _>>()?;
         let configuration = JsonConfiguration {
             package_selectors: self.selection.package_selectors.iter().collect(),
             workspace: self.selection.workspace,
             package_exclude_selectors: self.selection.package_exclude_selectors.iter().collect(),
+            root_files: self.selection.root_files.as_str(),
             host_targets,
             targets,
             project_targets,
@@ -281,10 +378,10 @@ impl Report {
             requested_targets: self.selection.requested_targets.iter().collect(),
         };
         let document = JsonReport {
-            schema_version: 1,
+            schema_version: JSON_SCHEMA_VERSION,
             root: self.selection.root.json_string()?,
             configuration,
-            packages,
+            rows,
             total: self.total,
             warnings: &self.warnings,
         };
@@ -294,22 +391,34 @@ impl Report {
     }
 }
 
-fn package_label(
+fn scope_label(
     selection: &Selection,
-    package: &crate::rust_accounting::PackageAccounting,
-    duplicate: bool,
+    scope: &ScopeId,
+    duplicate_names: &BTreeMap<String, BTreeSet<String>>,
 ) -> String {
-    if !duplicate {
-        return package.name.clone();
+    match scope {
+        ScopeId::Root { .. } => "<root>".to_owned(),
+        ScopeId::Package {
+            id,
+            name,
+            manifest_path,
+            ..
+        } => {
+            if duplicate_names
+                .get(name.as_str())
+                .is_none_or(|ids| ids.len() <= 1)
+            {
+                return name.clone();
+            }
+            let qualifier = manifest_path
+                .parent()
+                .and_then(|path| path.strip_prefix(selection.root.as_path()).ok())
+                .filter(|path| !path.as_os_str().is_empty())
+                .and_then(Path::to_str)
+                .unwrap_or(id);
+            format!("{name} ({qualifier})")
+        }
     }
-    let qualifier = package
-        .manifest_path
-        .parent()
-        .and_then(|path| path.strip_prefix(selection.root.as_path()).ok())
-        .filter(|path| !path.as_os_str().is_empty())
-        .and_then(Path::to_str)
-        .unwrap_or(&package.id);
-    format!("{} ({qualifier})", package.name)
 }
 
 fn report_table_row(label: &str, language: &str, counts: Counts) -> Row {
@@ -318,10 +427,14 @@ fn report_table_row(label: &str, language: &str, counts: Counts) -> Row {
         text_cell(language),
         numeric_cell(counts.files),
         numeric_cell(counts.lines),
+        numeric_cell(counts.lines),
         numeric_cell(counts.blanks),
         numeric_cell(counts.comments),
         numeric_cell(counts.code),
-        numeric_cell(counts.test),
+        numeric_cell(match counts.test {
+            TestCount::Known(value) => value.to_string(),
+            TestCount::Unavailable => "n/a".to_owned(),
+        }),
     ])
 }
 
@@ -357,7 +470,7 @@ struct JsonReport<'a> {
     schema_version: u8,
     root: String,
     configuration: JsonConfiguration<'a>,
-    packages: Vec<JsonPackageRow>,
+    rows: Vec<JsonScopeRow>,
     total: Counts,
     warnings: &'a [Warning],
 }
@@ -367,6 +480,7 @@ struct JsonConfiguration<'a> {
     package_selectors: Vec<&'a String>,
     workspace: bool,
     package_exclude_selectors: Vec<&'a String>,
+    root_files: &'static str,
     host_targets: Vec<String>,
     targets: Vec<String>,
     project_targets: Vec<JsonProjectTargets>,
@@ -427,14 +541,26 @@ impl FeatureContext {
     }
 }
 
-impl PackageRow {
-    fn to_json(&self) -> Result<JsonPackageRow, AppError> {
-        Ok(JsonPackageRow {
-            name: self.name.clone(),
-            package_id: self.package_id.clone(),
-            project_root: json_path(&self.project_root)?,
-            manifest_path: json_path(&self.manifest_path)?,
+impl ScopeRow {
+    fn to_json(&self) -> Result<JsonScopeRow, AppError> {
+        Ok(JsonScopeRow {
+            scope: match &self.scope {
+                ScopeId::Package {
+                    id,
+                    name,
+                    project_root,
+                    manifest_path,
+                } => JsonScope::Package {
+                    name: name.clone(),
+                    package_id: id.clone(),
+                    project_root: json_path(project_root)?,
+                    manifest_path: json_path(manifest_path)?,
+                },
+                ScopeId::Root { .. } => JsonScope::Root { path: "." },
+            },
             language: self.language.to_string(),
+            accounting_engine: self.engine.as_str(),
+            accounting_precision: self.precision.as_str(),
             counts: self.counts,
         })
     }
@@ -447,14 +573,27 @@ fn json_path(path: &Path) -> Result<String, AppError> {
 }
 
 #[derive(Serialize)]
-struct JsonPackageRow {
-    name: String,
-    package_id: String,
-    project_root: String,
-    manifest_path: String,
+struct JsonScopeRow {
+    scope: JsonScope,
     language: String,
+    accounting_engine: &'static str,
+    accounting_precision: &'static str,
     #[serde(flatten)]
     counts: Counts,
+}
+
+#[derive(Serialize)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+enum JsonScope {
+    Package {
+        name: String,
+        package_id: String,
+        project_root: String,
+        manifest_path: String,
+    },
+    Root {
+        path: &'static str,
+    },
 }
 
 #[derive(Serialize)]
@@ -482,6 +621,10 @@ struct JsonFeatureContext {
 mod tests {
     use super::*;
 
+    use crate::accountant::{AccountingEngine, AccountingPrecision, AccountingRow, LanguageId};
+    use crate::model::TestCount;
+    use tempfile::TempDir;
+
     #[test]
     fn table_cell_sanitization_is_stable() {
         assert_eq!(sanitize_table_cell(r"a\b|c"), r"a\b|c");
@@ -498,6 +641,207 @@ mod tests {
             sanitize_table_cell(&controls)
                 .chars()
                 .all(|value| !value.is_control())
+        );
+    }
+
+    #[test]
+    fn mixed_rows_render_unavailable_test_without_duplicate_package_qualifier() {
+        let root = TempDir::new().expect("create Root");
+        let root_identity =
+            crate::model::Root::resolve(root.path(), root.path()).expect("resolve temporary Root");
+        let manifest_path = root.path().join("Cargo.toml");
+        let mut report = Report::empty(Selection {
+            root: root_identity,
+            package_selectors: BTreeSet::new(),
+            workspace: false,
+            package_exclude_selectors: BTreeSet::new(),
+            root_files: RootFilePolicy::Include,
+            all_features: true,
+            no_default_features: false,
+            features: BTreeSet::new(),
+            requested_targets: BTreeSet::new(),
+            target_includes: BTreeSet::new(),
+            target_excludes: BTreeSet::new(),
+            json: false,
+        });
+        report
+            .package_projects
+            .insert("package-id".to_owned(), root.path().to_path_buf());
+        let rows = vec![
+            AccountingRow {
+                package_id: "package-id".to_owned(),
+                package_name: "mixed".to_owned(),
+                manifest_path: manifest_path.clone(),
+                language: LanguageId::RUST,
+                engine: AccountingEngine::Rust,
+                precision: AccountingPrecision::ConfigurationAware,
+                counts: Counts {
+                    files: 1,
+                    lines: 3,
+                    code: 2,
+                    test: TestCount::Known(1),
+                    ..Counts::default()
+                },
+            },
+            AccountingRow {
+                package_id: "package-id".to_owned(),
+                package_name: "mixed".to_owned(),
+                manifest_path,
+                language: LanguageId::new("typescript", "TypeScript"),
+                engine: AccountingEngine::Tokei,
+                precision: AccountingPrecision::Lexical,
+                counts: Counts {
+                    files: 1,
+                    lines: 4,
+                    comments: 1,
+                    code: 3,
+                    test: TestCount::Unavailable,
+                    ..Counts::default()
+                },
+            },
+        ];
+
+        report.apply_rows(&rows).expect("apply mixed rows");
+        let table = String::from_utf8(report.render().expect("render table")).expect("UTF-8 table");
+
+        assert!(table.contains("│ mixed   ┆ TypeScript ┆"));
+        assert!(table.contains("│         ┆ Rust       ┆"));
+        assert!(!table.contains("mixed ("));
+        assert!(table.contains(
+            "│ Total   ┆ All        ┆     2 ┆     7 ┆     7 ┆      0 ┆        1 ┆    5 ┆    1 │"
+        ));
+        assert!(
+            table
+                .lines()
+                .filter(|line| line.ends_with(" n/a │"))
+                .count()
+                == 1
+        );
+    }
+
+    #[test]
+    fn json_v3_uses_null_for_unavailable_test_and_structural_package_scope() {
+        let root = TempDir::new().expect("create Root");
+        let root_identity =
+            crate::model::Root::resolve(root.path(), root.path()).expect("resolve temporary Root");
+        let manifest_path = root.path().join("Cargo.toml");
+        let mut report = Report::empty(Selection {
+            root: root_identity,
+            package_selectors: BTreeSet::new(),
+            workspace: false,
+            package_exclude_selectors: BTreeSet::new(),
+            root_files: RootFilePolicy::Include,
+            all_features: true,
+            no_default_features: false,
+            features: BTreeSet::new(),
+            requested_targets: BTreeSet::new(),
+            target_includes: BTreeSet::new(),
+            target_excludes: BTreeSet::new(),
+            json: true,
+        });
+        report
+            .package_projects
+            .insert("package-id".to_owned(), root.path().to_path_buf());
+        report
+            .apply_rows(&[AccountingRow {
+                package_id: "package-id".to_owned(),
+                package_name: "mixed".to_owned(),
+                manifest_path,
+                language: LanguageId::new("typescript", "TypeScript"),
+                engine: AccountingEngine::Tokei,
+                precision: AccountingPrecision::Lexical,
+                counts: Counts {
+                    files: 1,
+                    lines: 1,
+                    code: 1,
+                    test: TestCount::Unavailable,
+                    ..Counts::default()
+                },
+            }])
+            .expect("apply lexical row");
+
+        let document: serde_json::Value =
+            serde_json::from_slice(&report.render().expect("render JSON")).expect("parse JSON");
+        assert_eq!(document["schema_version"], 3);
+        assert_eq!(document["rows"][0]["scope"]["kind"], "package");
+        assert_eq!(document["rows"][0]["scope"]["name"], "mixed");
+        assert_eq!(document["rows"][0]["test"], serde_json::Value::Null);
+        assert_eq!(document["rows"][0]["accounting_engine"], "tokei");
+        assert_eq!(document["rows"][0]["accounting_precision"], "lexical");
+        assert_eq!(document["total"]["test"], serde_json::Value::Null);
+    }
+
+    #[test]
+    fn rows_sort_by_descending_package_total_then_language_total() {
+        let root = TempDir::new().expect("create Root");
+        let root_identity =
+            crate::model::Root::resolve(root.path(), root.path()).expect("resolve temporary Root");
+        let mut report = Report::empty(Selection {
+            root: root_identity,
+            package_selectors: BTreeSet::new(),
+            workspace: false,
+            package_exclude_selectors: BTreeSet::new(),
+            root_files: RootFilePolicy::Include,
+            all_features: true,
+            no_default_features: false,
+            features: BTreeSet::new(),
+            requested_targets: BTreeSet::new(),
+            target_includes: BTreeSet::new(),
+            target_excludes: BTreeSet::new(),
+            json: false,
+        });
+        for id in ["alpha", "beta"] {
+            report
+                .package_projects
+                .insert(id.to_owned(), root.path().to_path_buf());
+        }
+        let rows = [
+            ("alpha", "alpha", LanguageId::RUST, 6),
+            (
+                "alpha",
+                "alpha",
+                LanguageId::new("typescript", "TypeScript"),
+                4,
+            ),
+            ("beta", "beta", LanguageId::RUST, 8),
+        ]
+        .into_iter()
+        .map(
+            |(package_id, package_name, language, lines)| AccountingRow {
+                package_id: package_id.to_owned(),
+                package_name: package_name.to_owned(),
+                manifest_path: root.path().join(format!("{package_id}/Cargo.toml")),
+                language,
+                engine: AccountingEngine::Rust,
+                precision: AccountingPrecision::ConfigurationAware,
+                counts: Counts {
+                    files: 1,
+                    lines,
+                    code: lines,
+                    test: TestCount::Known(0),
+                    ..Counts::default()
+                },
+            },
+        )
+        .collect::<Vec<_>>();
+
+        report.apply_rows(&rows).expect("apply rows");
+
+        assert_eq!(
+            report
+                .packages
+                .iter()
+                .map(|row| (
+                    row.label.as_str(),
+                    row.language.to_string(),
+                    row.counts.lines
+                ))
+                .collect::<Vec<_>>(),
+            vec![
+                ("alpha", "Rust".to_owned(), 6),
+                ("alpha", "TypeScript".to_owned(), 4),
+                ("beta", "Rust".to_owned(), 8),
+            ]
         );
     }
 }

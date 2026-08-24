@@ -6,14 +6,17 @@ pub mod cli;
 pub mod configuration;
 pub mod discovery;
 pub mod error;
+pub mod generic_source;
 pub mod metrics;
 pub mod model;
 mod process;
 pub mod report;
+mod routed_accounting;
 pub mod rust_accounting;
 mod rust_analysis;
 pub mod rust_source;
 mod snapshot;
+pub mod tokei_accounting;
 
 use std::ffi::OsString;
 

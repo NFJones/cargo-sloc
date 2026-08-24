@@ -17,12 +17,134 @@ fn table_renders_package_counts_and_total_exactly() {
     assert!(output.stderr.is_empty());
     assert_eq!(
         String::from_utf8(output.stdout).expect("UTF-8 table"),
-        "╭──────────┬──────────┬───────┬───────┬────────┬──────────┬──────┬──────╮\n\
-         │ Package  ┆ Language ┆ Files ┆ Lines ┆ Blanks ┆ Comments ┆ Code ┆ Test │\n\
-         ╞══════════╪══════════╪═══════╪═══════╪════════╪══════════╪══════╪══════╡\n\
-         │ ordinary ┆ Rust     ┆     1 ┆     3 ┆      1 ┆        1 ┆    1 ┆    0 │\n\
-         │ Total    ┆ All      ┆     1 ┆     3 ┆      1 ┆        1 ┆    1 ┆    0 │\n\
-         ╰──────────┴──────────┴───────┴───────┴────────┴──────────┴──────┴──────╯\n"
+        "╭──────────┬──────────┬───────┬───────┬───────┬────────┬──────────┬──────┬──────╮\n\
+         │ Package  ┆ Language ┆ Files ┆ Total ┆ Lines ┆ Blanks ┆ Comments ┆ Code ┆ Test │\n\
+         ╞══════════╪══════════╪═══════╪═══════╪═══════╪════════╪══════════╪══════╪══════╡\n\
+         │ ordinary ┆ TOML     ┆     1 ┆     4 ┆     4 ┆      0 ┆        0 ┆    4 ┆  n/a │\n\
+         │          ┆ Rust     ┆     1 ┆     3 ┆     3 ┆      1 ┆        1 ┆    1 ┆    0 │\n\
+         │ Total    ┆ All      ┆     2 ┆     7 ┆     7 ┆      1 ┆        1 ┆    5 ┆    0 │\n\
+         ╰──────────┴──────────┴───────┴───────┴───────┴────────┴──────────┴──────┴──────╯\n"
+    );
+}
+
+#[test]
+fn root_only_reports_use_one_structural_root_scope() {
+    let root = TempDir::new().expect("create Root");
+    write(
+        root.path().join("standalone.rs"),
+        "// note\nfn standalone() {}\n",
+    );
+    write(root.path().join("tool.py"), "print('root')\n");
+
+    let json = run(root.path(), ["--json"]);
+    assert_success(&json);
+    let report: Value = serde_json::from_slice(&json.stdout).expect("parse Root JSON report");
+    assert_eq!(report["schema_version"], 3);
+    assert_eq!(report["configuration"]["root_files"], "include");
+    let rows = report["rows"].as_array().expect("rows array");
+    assert_eq!(rows.len(), 2);
+    assert!(
+        rows.iter()
+            .all(|row| { row["scope"] == serde_json::json!({"kind": "root", "path": "."}) })
+    );
+    let rust = rows
+        .iter()
+        .find(|row| row["language"] == "Rust (unconfigured)")
+        .expect("unconfigured Rust row");
+    assert_eq!(rust["accounting_engine"], "rust");
+    assert_eq!(rust["accounting_precision"], "unconfigured");
+    assert_eq!(rust["test"], Value::Null);
+
+    let table = run(root.path(), std::iter::empty::<&str>());
+    assert_success(&table);
+    let table = String::from_utf8(table.stdout).expect("UTF-8 Root table");
+    assert_eq!(table.matches("<root>").count(), 1);
+    assert!(table.contains("Rust (unconfigured)"));
+    assert!(table.contains("Python"));
+}
+
+#[test]
+fn mixed_package_and_root_scopes_are_both_visible_and_filterable() {
+    let root = TempDir::new().expect("create Root");
+    package_at(root.path().join("member"), "member", "pub fn member() {}\n");
+    write(root.path().join("tool.py"), "print('root')\n");
+
+    let included = run(root.path(), ["--json"]);
+    assert_success(&included);
+    let report: Value =
+        serde_json::from_slice(&included.stdout).expect("parse mixed Scope JSON report");
+    let rows = report["rows"].as_array().expect("rows array");
+    assert!(rows.iter().any(|row| row["scope"]["kind"] == "package"));
+    assert!(rows.iter().any(|row| row["scope"]["kind"] == "root"));
+
+    let excluded = run(root.path(), ["--json", "--root-files", "exclude"]);
+    assert_success(&excluded);
+    let report: Value =
+        serde_json::from_slice(&excluded.stdout).expect("parse filtered Scope JSON report");
+    assert_eq!(report["configuration"]["root_files"], "exclude");
+    assert!(
+        report["rows"]
+            .as_array()
+            .expect("rows array")
+            .iter()
+            .all(|row| row["scope"]["kind"] == "package")
+    );
+}
+
+#[test]
+fn mixed_language_reports_merge_rust_extensions_and_shebang_sources() {
+    let root = package("mixed", "pub fn rust() {}\n");
+    write(
+        root.path().join("web/app.js"),
+        "// note\nconst value = 1;\n",
+    );
+    write(
+        root.path().join("tool"),
+        "#!/usr/bin/env python3\nprint('ok')\n",
+    );
+
+    let first = run(root.path(), ["--json"]);
+    let second = run(root.path(), ["--json"]);
+    assert_success(&first);
+    assert_success(&second);
+    assert_eq!(first.stdout, second.stdout, "JSON must be deterministic");
+
+    let report: Value = serde_json::from_slice(&first.stdout).expect("parse mixed JSON report");
+    let packages = report["rows"].as_array().expect("rows array");
+    assert_eq!(packages.len(), 4);
+    assert_eq!(
+        packages
+            .iter()
+            .map(|row| row["language"].as_str().expect("language"))
+            .collect::<Vec<_>>(),
+        ["TOML", "JavaScript", "Python", "Rust"]
+    );
+    assert_eq!(packages[0]["accounting_precision"], "lexical");
+    assert_eq!(packages[0]["test"], Value::Null);
+    assert_eq!(packages[1]["accounting_precision"], "lexical");
+    assert_eq!(packages[1]["test"], Value::Null);
+    assert_eq!(packages[2]["accounting_precision"], "lexical");
+    assert_eq!(packages[2]["test"], Value::Null);
+    assert_eq!(packages[3]["accounting_precision"], "configuration-aware");
+    assert_eq!(packages[3]["test"], 0);
+    assert_eq!(report["total"]["files"], 4);
+    assert_eq!(report["total"]["lines"], 9);
+    assert_eq!(report["total"]["test"], Value::Null);
+
+    let table = run(root.path(), std::iter::empty::<&str>());
+    assert_success(&table);
+    let table = String::from_utf8(table.stdout).expect("UTF-8 mixed table");
+    assert!(table.contains(" mixed   ┆ TOML       "));
+    assert!(table.contains("         ┆ JavaScript "));
+    assert!(table.contains("         ┆ Python     "));
+    assert!(table.contains("         ┆ Rust       "));
+    assert_eq!(
+        table
+            .lines()
+            .filter(|line| line.ends_with(" n/a │"))
+            .count(),
+        3,
+        "only lexical rows have unavailable Test counts"
     );
 }
 
@@ -82,25 +204,42 @@ fn json_contains_typed_package_and_context_provenance() {
     assert_success(&output);
     assert!(output.stderr.is_empty());
     let report: Value = serde_json::from_slice(&output.stdout).expect("parse JSON report");
-    assert_eq!(report["schema_version"], 1);
-    let packages = report["packages"].as_array().expect("packages array");
-    assert_eq!(packages.len(), 1);
-    let package = &packages[0];
-    assert_eq!(package["name"], "json-package");
+    assert_eq!(report["schema_version"], 3);
+    let packages = report["rows"].as_array().expect("rows array");
+    assert_eq!(packages.len(), 2);
+    let package = packages
+        .iter()
+        .find(|package| package["language"] == "Rust")
+        .expect("Rust row");
+    let manifest = packages
+        .iter()
+        .find(|package| package["language"] == "TOML")
+        .expect("TOML row");
+    assert_eq!(package["scope"]["kind"], "package");
+    assert_eq!(package["scope"]["name"], "json-package");
     assert_eq!(package["language"], "Rust");
+    assert_eq!(package["accounting_engine"], "rust");
+    assert_eq!(package["accounting_precision"], "configuration-aware");
     assert!(
-        package["package_id"]
+        package["scope"]["package_id"]
             .as_str()
             .is_some_and(|id| !id.is_empty())
     );
-    assert_eq!(package["project_root"].as_str(), root.path().to_str());
     assert_eq!(
-        package["manifest_path"].as_str(),
+        package["scope"]["project_root"].as_str(),
+        root.path().to_str()
+    );
+    assert_eq!(
+        package["scope"]["manifest_path"].as_str(),
         root.path().join("Cargo.toml").to_str()
     );
     assert_eq!(package["files"], 1);
     assert_eq!(package["lines"], 1);
     assert_eq!(package["code"], 1);
+    assert_eq!(manifest["files"], 1);
+    assert_eq!(manifest["lines"], 7);
+    assert_eq!(manifest["code"], 6);
+    assert_eq!(manifest["test"], Value::Null);
 
     let contexts = report["configuration"]["feature_contexts"]
         .as_array()
@@ -112,7 +251,17 @@ fn json_contains_typed_package_and_context_provenance() {
                 .as_array()
                 .is_some_and(|features| features.iter().any(|feature| feature == "alpha"))
     }));
-    assert_eq!(report["total"], package_counts(package));
+    assert_eq!(
+        report["total"],
+        serde_json::json!({
+            "files": 2,
+            "lines": 8,
+            "blanks": 1,
+            "comments": 0,
+            "code": 7,
+            "test": null
+        })
+    );
 }
 
 #[test]
@@ -147,30 +296,46 @@ fn valid_features_survive_an_empty_target_selection() {
 
     let table = run(
         root.path(),
-        ["--features", "alpha", "--exclude-target", "lib"],
+        [
+            "--features",
+            "alpha",
+            "--exclude-target",
+            "lib",
+            "--root-files",
+            "exclude",
+        ],
     );
     assert_success(&table);
     assert_eq!(
         String::from_utf8(table.stdout).expect("UTF-8 table"),
-        "╭─────────┬──────────┬───────┬───────┬────────┬──────────┬──────┬──────╮\n\
-         │ Package ┆ Language ┆ Files ┆ Lines ┆ Blanks ┆ Comments ┆ Code ┆ Test │\n\
-         ╞═════════╪══════════╪═══════╪═══════╪════════╪══════════╪══════╪══════╡\n\
-         │ Total   ┆ All      ┆     0 ┆     0 ┆      0 ┆        0 ┆    0 ┆    0 │\n\
-         ╰─────────┴──────────┴───────┴───────┴────────┴──────────┴──────┴──────╯\n"
+        "╭─────────┬──────────┬───────┬───────┬───────┬────────┬──────────┬──────┬──────╮\n\
+         │ Package ┆ Language ┆ Files ┆ Total ┆ Lines ┆ Blanks ┆ Comments ┆ Code ┆ Test │\n\
+         ╞═════════╪══════════╪═══════╪═══════╪═══════╪════════╪══════════╪══════╪══════╡\n\
+         │ Total   ┆ All      ┆     0 ┆     0 ┆     0 ┆      0 ┆        0 ┆    0 ┆    0 │\n\
+         ╰─────────┴──────────┴───────┴───────┴───────┴────────┴──────────┴──────┴──────╯\n"
     );
 
     let json = run(
         root.path(),
-        ["--json", "--features", "alpha", "--exclude-target", "lib"],
+        [
+            "--json",
+            "--features",
+            "alpha",
+            "--exclude-target",
+            "lib",
+            "--root-files",
+            "exclude",
+        ],
     );
     assert_success(&json);
     let report: Value = serde_json::from_slice(&json.stdout).expect("parse JSON report");
-    assert_eq!(report["packages"], serde_json::json!([]));
+    assert_eq!(report["rows"], serde_json::json!([]));
     assert_eq!(
         report["configuration"]["features"],
         serde_json::json!(["alpha"])
     );
     assert_eq!(report["configuration"]["all_features"], false);
+    assert_eq!(report["configuration"]["root_files"], "exclude");
     assert_eq!(
         report["total"],
         serde_json::json!({
@@ -185,7 +350,14 @@ fn valid_features_survive_an_empty_target_selection() {
 
     let unknown = run(
         root.path(),
-        ["--features", "missing", "--exclude-target", "lib"],
+        [
+            "--features",
+            "missing",
+            "--exclude-target",
+            "lib",
+            "--root-files",
+            "exclude",
+        ],
     );
     assert!(!unknown.status.success());
     assert!(unknown.stdout.is_empty());
@@ -233,17 +405,6 @@ fn package_at(root: PathBuf, name: &str, source: &str) {
         &format!("[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"2024\"\n"),
     );
     write(root.join("src/lib.rs"), source);
-}
-
-fn package_counts(package: &Value) -> Value {
-    serde_json::json!({
-        "files": package["files"],
-        "lines": package["lines"],
-        "blanks": package["blanks"],
-        "comments": package["comments"],
-        "code": package["code"],
-        "test": package["test"]
-    })
 }
 
 fn run<I, S>(root: &Path, arguments: I) -> Output

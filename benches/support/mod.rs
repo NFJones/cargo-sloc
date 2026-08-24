@@ -98,6 +98,79 @@ impl SyntheticWorkspace {
     }
 }
 
+/// A generated package with many generic-language files and one Rust target.
+pub struct MixedLanguageWorkspace {
+    _temp: TempDir,
+    root: PathBuf,
+    edited_source: PathBuf,
+    original_source: String,
+}
+
+impl MixedLanguageWorkspace {
+    /// Generates JavaScript, TypeScript, and extensionless Python sources.
+    pub fn new(tiny_files: usize, large_files: usize, lines_per_large_file: usize) -> Self {
+        let temp = tempfile::tempdir().expect("create mixed-language benchmark workspace");
+        let root = temp.path().to_path_buf();
+        write(
+            root.join("Cargo.toml"),
+            "[package]\nname = \"mixed-languages\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
+        );
+        write(root.join("src/lib.rs"), "pub fn rust_anchor() {}\n");
+
+        for index in 0..tiny_files {
+            write(
+                root.join(format!("web/tiny-{index}.js")),
+                &format!("export const tiny_{index} = {index};\n"),
+            );
+        }
+        for file in 0..large_files {
+            let contents = (0..lines_per_large_file)
+                .map(|line| format!("export const item_{file}_{line}: number = {line};"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            write(
+                root.join(format!("web/large-{file}.ts")),
+                &format!("{contents}\n"),
+            );
+        }
+        for index in 0..tiny_files.min(16) {
+            write(
+                root.join(format!("tools/script-{index}")),
+                &format!("#!/usr/bin/env python3\nprint({index})\n"),
+            );
+        }
+
+        let edited_source = root.join("web/large-0.ts");
+        let original_source = fs::read_to_string(&edited_source)
+            .expect("read generic benchmark source selected for controlled edits");
+        Self {
+            _temp: temp,
+            root,
+            edited_source,
+            original_source,
+        }
+    }
+
+    /// Returns the generated workspace root.
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
+    /// Applies or removes one deterministic generic-source edit.
+    pub fn set_source_edit(&self, edited: bool) {
+        let contents = if edited {
+            format!(
+                "{}export const item_added_after_warm_run = true;\n",
+                self.original_source
+            )
+        } else {
+            self.original_source.clone()
+        };
+        fs::write(&self.edited_source, contents)
+            .expect("write controlled generic benchmark source edit");
+    }
+}
+
 /// A package whose library and many binaries all reach the same module graph.
 pub struct SharedTargetWorkspace {
     _temp: TempDir,

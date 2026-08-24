@@ -38,9 +38,11 @@
 ## 1. Status and Scope
 
 This document specifies `cargo-loc`, a Cargo external subcommand for reporting
-lines of source code associated with the Cargo projects beneath a selected
-directory. It defines command behavior, project discovery, Cargo configuration,
-source selection, line classification, reporting, diagnostics, and performance
+lines of supported source beneath a selected directory. Cargo projects receive
+configuration-aware Rust analysis, while supported files outside Cargo package
+ownership remain visible through an explicit Root scope. This document defines
+command behavior, project and file discovery, Cargo configuration, source
+selection, line classification, reporting, diagnostics, and performance
 expectations.
 
 This is the first complete draft of the specification. It is expected to evolve
@@ -50,9 +52,9 @@ otherwise, its requirements are normative.
 `cargo-loc` is distributed as an executable named `cargo-loc`. Cargo invokes
 such an executable as `cargo loc` when it is available on `PATH`.
 
-Rust MUST be the initially supported language. The accounting system MUST be
-designed so additional languages can be supported without replacing the Cargo
-project-discovery or report models. Files in unsupported languages MUST be
+Rust MUST use cargo-loc's configuration-aware Accountant when selected Cargo
+contexts are available. Other recognized languages MUST use the generic
+Accountant defined in Section 8. Files in unsupported languages MUST be
 ignored.
 
 The reported metric is source-level LOC. It is not compiler-expanded LOC,
@@ -73,8 +75,9 @@ cargo-loc:
   document.
 
 Root:
-: The directory from which cargo-loc discovers Cargo projects. It is supplied
-  by the optional positional `PATH` argument and defaults to `.`.
+: The directory from which cargo-loc discovers Cargo projects and supported
+  source files. It is supplied by the optional positional `PATH` argument and
+  defaults to `.`.
 
 Beneath the Root:
 : A path is beneath the Root when it is equal to the Root or is a descendant of
@@ -93,9 +96,28 @@ Workspace:
 : A Cargo workspace as resolved by Cargo metadata.
 
 Package:
-: A Cargo package selected for accounting. A Package is the report-level unit.
-  It can contain multiple Cargo Targets, each of which may produce a distinct
-  Rust crate.
+: A Cargo package selected for accounting. A Package can contain multiple
+  Cargo Targets, each of which may produce a distinct Rust crate.
+
+Physical File Identity:
+: The invocation-wide identity of one underlying file, independent of path
+  aliases. Every eligible Physical File Identity has one deterministic
+  representative path and zero or more alias paths.
+
+Scope:
+: The single report owner of an accounted Physical File Identity. A Scope is
+  either a selected Package or the Root. The Root Scope owns eligible files
+  that do not resolve to one selected Package under Section 8.
+
+Root Source Inventory:
+: The invocation-wide ledger produced by one Root-local, ignore-aware walk. It
+  records each encountered candidate's identity, aliases, recognition,
+  Package containment and Rust reachability claims, final Scope, accounting
+  route, and disposition.
+
+Accounting Route:
+: The single Accountant path selected for an eligible Physical File Identity:
+  configuration-aware Rust, unconfigured Rust, or a Tokei-backed language.
 
 Target:
 : A Cargo target belonging to a package, such as a library, binary,
@@ -160,14 +182,19 @@ Line of Code (LOC):
 
 cargo-loc MUST perform these logical phases:
 
-1. discover Cargo projects beneath the Root;
+1. discover Cargo projects and build one Root Source Inventory;
 2. query Cargo to resolve workspaces, packages, features, targets, and
    configuration;
-3. construct the applicable Build Configurations;
-4. discover first-party source reachable from selected targets;
-5. evaluate source-level conditional compilation;
-6. classify included Physical Lines through a language Accountant; and
-7. aggregate and render the report.
+3. construct the applicable Build Configurations and collect Rust reachability
+   claims;
+4. resolve one Physical File Identity, Scope, and Accounting Route for every
+   eligible inventory record;
+5. evaluate configuration-aware or unconfigured Rust semantics where
+   applicable;
+6. classify each included Physical File exactly once through its selected
+   language Accountant;
+7. verify the inventory-to-contribution partition; and
+8. aggregate and render the report.
 
 cargo-loc MUST NOT invoke `cargo build`, compile a selected package, expand a
 macro, or execute a build script during normal accounting. It MAY invoke
@@ -191,6 +218,15 @@ An Accountant MUST return the common `Files`, `Lines`, `Blanks`, `Comments`,
 MUST be kept behind the Accountant boundary. The architecture MUST permit a
 future Accountant to support another language without changing the meaning of
 those report fields.
+
+The core system MUST enforce this invariant before aggregation:
+
+```text
+one Physical File Identity -> one Scope -> one Accounting Route -> one contribution
+```
+
+No Accountant may independently discover final ownership or emit a second
+contribution for an identity already handled by another route.
 
 The Rust Accountant MUST use Rust-aware lexical and syntactic analysis. It MUST
 NOT identify comments, attributes, strings, or conditional source using regular
@@ -231,6 +267,8 @@ The command MUST support:
 - repeatable `--target TARGET` for compilation-target selection;
 - the package-target selectors in Section 6;
 - `--exclude-target SELECTOR` as defined in Section 6;
+- `--root-files include|exclude`, defaulting to `include`, for controlling
+  files whose final Scope is the Root;
 - `--json` as defined in Section 11;
 - `-h` and `--help`; and
 - `-V` and `--version`.
@@ -246,9 +284,9 @@ corresponding `cargo build` syntax and resolution behavior except where this
 specification explicitly defines a different default. Unknown options and
 invalid combinations MUST be rejected.
 
-`--help` MUST describe that all eligible Packages beneath the Root, all
-features, and all package targets are selected by default. `--version` MUST
-print the cargo-loc version and exit successfully.
+`--help` MUST describe that all eligible Packages, all features, all package
+targets, and supported Root-owned files are included by default. `--version`
+MUST print the cargo-loc version and exit successfully.
 
 The command SHOULD provide examples for counting the default Root, a different
 Root, a selected feature set, non-default features, and JSON output.
@@ -257,32 +295,36 @@ Root, a selected feature set, non-default features, and JSON output.
 
 ### 6.1 Project discovery
 
-cargo-loc MUST recursively discover Cargo manifests beneath the Root. Discovery
-MUST ignore at least:
+cargo-loc MUST recursively discover Cargo manifests beneath the Root through
+the shared Root Source Inventory traversal. The traversal MUST structurally
+exclude `.git`, `.hg`, `.svn`, and cargo-loc's `.cargo-loc` state directory. It
+MUST honor paths excluded by `.gitignore` and `.ignore` files located at or
+beneath the Root. Hidden files and directories MUST NOT otherwise be excluded
+merely because their names begin with a dot.
 
-- Cargo `target` directories;
-- `.git`, `.hg`, and `.svn` administration directories; and
-- paths excluded by `.gitignore` files located at or beneath the Root.
+Ignore matching MUST begin at the Root and honor nested `.gitignore` and
+`.ignore` files using their documented pattern and precedence semantics.
+Repository-local excludes outside the traversed tree, `.git/info/exclude`,
+global excludes, and ignore rules inherited only from an ancestor of the Root
+MUST NOT affect discovery. These rules ensure that the same Root contents
+produce the same candidate set independently of the user's global
+configuration.
 
-Git-ignore matching MUST begin at the Root and honor nested `.gitignore` files
-using Git's pattern and precedence semantics. Repository-local excludes outside
-the traversed tree, global excludes, and ignore rules inherited only from an
-ancestor of the Root MUST NOT affect discovery. These rules ensure that the
-same Root contents produce the same candidate set independently of the user's
-global Git configuration.
+Ignore rules govern both candidate-manifest and candidate-source traversal.
+After a Project is discovered, Cargo metadata remains authoritative for its
+workspace membership and selected target source paths. An ignored source path
+explicitly reported by Cargo or reached through a selected Rust module graph
+MAY be retained as a Rust reachability claim, but an ignored path MUST NOT be
+added merely by the Root inventory walk. A nonmember path dependency MUST NOT
+become part of a Project merely because Cargo metadata reports it in the
+dependency graph. Its manifest MUST be independently discovered before it can
+form another Project. An ignored standalone or nonmember manifest therefore
+remains undiscovered.
 
-Ignore rules govern recursive candidate-manifest traversal only. After a
-Project is discovered, Cargo metadata is authoritative for its workspace
-membership. An in-Root workspace member reported by that metadata MUST NOT be
-removed merely because its manifest would have been ignored during independent
-recursive discovery. A nonmember path dependency MUST NOT become part of that
-Project merely because Cargo metadata reports it in the dependency graph. Its
-manifest MUST be independently discovered before it can form another Project.
-An ignored standalone or nonmember manifest therefore remains undiscovered.
-
-Symlinked directories SHOULD NOT be followed during recursive manifest
-discovery. A manifest explicitly encountered through the Root path MAY itself
-refer to symlinked source files.
+Symlinked directories MUST NOT be followed during recursive discovery. A file
+symlink encountered beneath the Root MAY identify an eligible file only when
+its canonical target remains beneath the Root. Out-of-Root targets MUST be
+skipped with a stable warning.
 
 For each candidate manifest, cargo-loc MUST use Cargo metadata to determine its
 workspace root, workspace members, packages, and target source paths. A
@@ -322,6 +364,14 @@ Root. `--exclude` MUST be valid only with a workspace-wide selection and MUST
 use Cargo package-spec matching. A requested package or exclusion that matches
 no eligible Package in any discovered Project MUST be an error. Failure to
 match an unrelated Project MUST NOT by itself make the invocation fail.
+
+Package and target selectors MUST narrow Package-owned source and Rust
+reachability claims; they MUST NOT silently reclassify files beneath an
+unselected Package root as Root-owned source. A file beneath an unselected
+Package root MAY still be included when it is explicitly reached by a selected
+Rust target, in which case Section 8 resolves its Scope from the selected graph
+claims. `--root-files exclude` MUST suppress only records whose final Scope is
+the Root. It MUST NOT alter Package selection or accounting.
 
 ### 6.2 Default target selection
 
@@ -410,8 +460,10 @@ matches no target or context SHOULD produce a warning rather than fail the
 command.
 
 If inclusion and exclusion leave a package with no selected targets, that
-package MUST contribute no report row. If every package has no selected target,
-the command MUST produce the empty successful report described in Section 11.
+Package MUST contribute no Package-owned report row. If every Package has no
+selected target, Root-owned files MAY still contribute rows according to
+`--root-files`; otherwise the command MUST produce the empty successful report
+described in Section 11.
 
 ## 7. Feature and Configuration Resolution
 
@@ -600,9 +652,11 @@ An external module MUST be traversed only in a Build Configuration in which its
 module declaration is active. A file reachable in any selected context MUST be
 included in that package's source set.
 
-The Rust Accountant MUST NOT count every `.rs` file beneath a package merely
-because it exists. Unreferenced fixtures, generated remnants, editor backups,
-and source belonging only to unselected targets MUST NOT be counted.
+The configuration-aware Rust Accountant MUST NOT treat every `.rs` file
+beneath a package as reachable merely because it exists. Unreferenced Rust
+files remain eligible through the unconfigured Rust route when the Root
+inventory includes them; they MUST NOT be presented as target-, feature-, or
+cfg-filtered source.
 
 Macro invocations MUST NOT be expanded for discovery. In particular,
 `include!`, procedural macros, and declarative macros MUST be counted as source
@@ -610,28 +664,116 @@ invocations but MUST NOT cause their generated or included Rust to be added to
 the source graph. A source file independently reachable through an ordinary
 selected target or module declaration remains countable.
 
-Each physical source file MUST be counted at most once per Package, even when:
+Each Physical File Identity MUST be counted at most once in the invocation,
+even when:
 
 - it is reachable from multiple selected targets;
 - it is compiled in both Production and Test Contexts;
 - more than one module path resolves to it; or
 - multiple selected contexts expose the same file.
 
-File identity MUST use the canonical absolute path where canonicalization
-succeeds. If an otherwise readable first-party source path cannot be
-canonicalized, cargo-loc MUST use its normalized absolute path as a fallback,
-MUST warn, and MUST NOT silently omit the file. The fallback provides stable
-best-effort deduplication but MUST NOT be represented as proof that two paths
-refer to different physical files.
+The Root Source Inventory MUST deduplicate before ownership. It MUST resolve a
+canonical in-Root target and use stable operating-system file identity where
+available, such as device/inode on Unix or volume/file ID on Windows, so file
+symlinks and hard links collapse globally. The lexicographically first
+Root-relative alias MUST be the deterministic representative path. If identity
+cannot be established strongly enough to rule out duplicate accounting, the
+candidate MUST be skipped with a stable warning rather than counted under an
+uncertain identity.
 
-If the same physical file is first-party source for two distinct selected
-Packages, each Package MUST count it once. The total row MUST be the arithmetic
-sum of Package rows. This reflects the file's participation in both packages
-and keeps report totals composable.
+Directory symlinks MUST NOT be traversed. File symlinks whose targets remain
+beneath the Root MAY participate as aliases; file symlinks escaping the Root
+MUST be skipped. Multiple paths, Rust module paths, Package claims, language
+recognizers, and host/embedded-language statistics MUST NOT increase the
+number of contributions for one Physical File Identity.
 
 Files in unsupported languages MUST be ignored and MUST NOT generate a report
 row. The implementation MAY provide a verbose diagnostic for ignored files,
 but default operation SHOULD remain quiet.
+
+Generic-language discovery MUST consume the shared Root Source Inventory rather
+than delegating filesystem traversal to a language engine. Apart from the VCS
+administration and `.cargo-loc` state directories specified in Section 6.1,
+non-ignored supported files MUST NOT be hard-coded out merely because they are
+in `target`, `vendor`, generated-output directories, or have lockfile-like
+names. Projects that do not want such source counted SHOULD exclude it through
+a supported Root-local ignore file.
+
+The inventory MUST collect all selected-Package containment and Rust graph
+claims before choosing ownership. It MUST then select exactly one Scope in this
+order:
+
+1. the deepest selected Package root containing the representative path;
+2. the uniquely claiming selected Package when exactly one selected Rust graph
+   reaches a file outside selected Package roots; or
+3. the Root when there are zero or multiple such Package claims.
+
+Equal-depth containment ambiguity MUST be resolved by stable Package identity
+and MUST produce a warning. A file beneath a discovered but unselected Package
+root is ineligible unless a selected Rust graph explicitly reaches it.
+Package, target, feature, and cfg selectors MUST NOT be claimed for ordinary
+Root-owned or generic files.
+
+After ownership, the inventory MUST select exactly one Accounting Route:
+
+- Rust reached by at least one selected Rust graph uses configuration-aware
+  Rust analysis across the union of its relevant semantic contexts;
+- recognized `.rs` source not reached by a selected Rust graph uses the
+  syntax-aware unconfigured Rust route; and
+- recognized non-Rust source uses the Tokei-backed route for its single host
+  language.
+
+Configuration-aware production provenance MUST take precedence over test-only
+provenance across the union. The unconfigured Rust route MUST use language
+`Rust (unconfigured)`, accounting engine `rust`, accounting precision
+`unconfigured`, and an unavailable `Test` count. It MUST NOT imply Cargo
+reachability, feature, target, cfg, or test filtering. Rust files MUST never
+enter the Tokei adapter.
+
+Every encountered candidate MUST receive an auditable disposition such as
+accounted, ignored, unsupported, structurally excluded, out-of-Root,
+unselected-Package, binary, unreadable, or uncertain identity. Accepted bytes
+SHOULD be retained so inventory and accounting do not read the same file twice.
+Inventory, identity, ignore, eligibility, ownership, recognition, and routing
+policies MUST have explicit compatibility versions suitable for snapshot
+invalidation.
+
+The generic Accountant MUST use the pinned Tokei 14 catalog through an
+in-memory adapter. It MUST NOT invoke Tokei's directory walker, formatter, or
+file-reading APIs. Recognition MUST use path metadata first and MAY inspect at
+most the retained first 128 bytes for an extensionless shebang. `.rs` files
+MUST never enter this adapter. NUL-bearing candidates MUST be treated as binary
+and ignored; other byte input, including non-UTF-8 source, MAY be classified by
+Tokei's byte-oriented scanner.
+
+Tokei-backed rows MUST declare lexical precision and an unavailable `Test`
+value. Their `Blanks`, `Comments`, and `Code` values follow Tokei's mutually
+exclusive lexical categories rather than Rust's overlapping comment measure.
+Embedded-language statistics MUST be summarized into the host-language row so
+each physical file contributes one row and its physical lines are not counted
+twice. The pinned catalog and cargo-loc adapter behavior MUST each have an
+explicit compatibility version.
+
+Before aggregation, cargo-loc MUST reject an identity assigned to multiple
+Scopes or routes, a contribution absent from the inventory, an owner mismatch,
+duplicate configured/unconfigured/Tokei contributions, or a recognized
+eligible record with no final disposition. The sum of report `Files` MUST equal
+the number of accounted inventory identities, and the sum of report `Lines`
+MUST equal the sum of their unique per-file Physical Line counts.
+
+Examples of the required partition include:
+
+- a Root with no Cargo manifest reports recognized files under `<root>`;
+- in a mixed workspace, selected-Package files use Package Scopes while
+  supported files beside those Packages use `<root>`;
+- a Rust file reached by two Packages outside both Package roots is counted
+  once under `<root>`, using the union of relevant contexts;
+- file-symlink and hard-link aliases contribute one file through their
+  deterministic representative path;
+- nested `.gitignore` or `.ignore` negation controls the candidate set without
+  consulting ignore files above the Root; and
+- `--root-files exclude` removes only `<root>` rows and does not change
+  selected-Package rows.
 
 Unreadable selected source, invalid source paths, and Rust syntax that prevents
 required cfg or module analysis MUST be diagnosed as errors. cargo-loc MUST NOT
@@ -729,9 +871,9 @@ for Rust cfg semantics.
 Every Accountant MUST produce these unsigned integer measures:
 
 `Files`:
-: The number of unique physical source files reachable in at least one selected
-  context for the Package and language. A reachable empty file or a reachable
-  file whose lines are all inactive still increments `Files`.
+: The number of unique Physical File Identities assigned to the Scope and
+  language. An accounted empty file or a configuration-aware file whose lines
+  are all inactive still increments `Files`.
 
 `Lines`:
 : The number of Physical Lines included under Section 10.2 in at least one
@@ -867,8 +1009,8 @@ and MUST NOT increment `Test`.
 
 All counters MUST be capable of representing at least the full range of an
 unsigned 64-bit integer. An implementation MUST detect rather than wrap an
-overflow. Report totals MUST be computed from the per-Package rows and MUST use
-the same overflow behavior.
+overflow. Report totals MUST be computed from the Scope/language rows and MUST
+use the same overflow behavior.
 
 ## 11. Reports and Output Formats
 
@@ -878,29 +1020,42 @@ A deterministic UTF-8 terminal table MUST be the default output format.
 Successful default output MUST contain these columns in this order:
 
 ```text
-Package, Language, Files, Lines, Blanks, Comments, Code, Test
+Package, Language, Files, Total, Lines, Blanks, Comments, Code, Test
 ```
 
-There MUST be one row for each selected Package and supported language pair
-with at least one discovered file. The `Package` cell identifies the
-Package-level aggregation row; it does not identify an individual Rust crate or
-Cargo Target. It MUST normally contain the Cargo package name. If names collide
-within the invocation, cargo-loc MUST add a stable Root-relative path or
-equivalent package qualifier so the displayed labels are unique. Printable
-text, including pipe characters and backslashes, MUST be preserved. Embedded
-line breaks, tabs, escape characters, and other control characters MUST be
-represented visibly rather than emitted as raw terminal controls.
+There MUST be one row for each resolved Scope and supported language pair with
+at least one accounted file. The `Package` column identifies the Scope-level
+aggregation row; it does not identify an individual Rust crate or Cargo Target.
+A Package Scope MUST normally use the Cargo package name. If Package names
+collide within the invocation, cargo-loc MUST add a stable Root-relative path or
+equivalent Package qualifier so displayed labels are unique. The Root Scope
+MUST use the stable label `<root>`. Only the first row for a Scope MUST print
+the Scope label; subsequent language rows for the same Scope MUST leave the
+cell empty. Printable text, including pipe characters and backslashes, MUST be
+preserved. Embedded line breaks, tabs, escape characters, and other control
+characters MUST be represented visibly rather than emitted as raw terminal
+controls.
 
-Rows MUST be ordered deterministically, first by package label and then by
-language. Language names MUST use stable display spelling; the Rust Accountant
-MUST emit `Rust`. Text columns MUST be left-aligned, and numeric columns MUST be
-right-aligned.
+`Total` is the number of included physical lines for the Scope/language row;
+it is equivalent to `Lines` and provides the sortable total LOC measure without
+incorrectly summing overlapping `Comments`, `Code`, and `Test` categories. Rows
+MUST be grouped by Scope and ordered by descending sum of their language-row
+`Total` values. Within each Scope, language rows MUST be ordered by descending
+`Total`. Ties MUST be ordered by Scope label, language, and stable Scope
+identity. Language names MUST use stable display spelling; configuration-aware
+Rust MUST emit `Rust`, and unconfigured Rust MUST emit `Rust (unconfigured)`.
+Text columns MUST be left-aligned, and numeric columns MUST be right-aligned.
+An Accountant that cannot determine test-only provenance MUST render `n/a` in
+its `Test` cell, right-aligned like a numeric value; it MUST NOT render zero.
+Only configuration-aware Rust rows MUST retain numeric `Test` values.
 
-The final row MUST be a `Total` row whose numeric values are arithmetic sums of
-the preceding rows. Its `Package` cell MUST be `Total` and its `Language` cell
-MUST be `All`. Because files are deduplicated within a Package but may
-participate in two Packages, the `Total` row MUST follow the Package-row
-semantics in Section 8 rather than global path deduplication.
+The final row MUST be a `Total` row whose available numeric values are
+arithmetic sums of the preceding rows. Its `Package` cell MUST be `Total` and
+its `Language` cell MUST be `All`. If any preceding row has an unavailable
+`Test` value, the Total `Test` value MUST also be `n/a`; a report with no rows
+MUST retain a numeric zero Total `Test` value. Because the rows partition the
+Root Source Inventory, the Total `Files` and `Lines` values MUST equal the
+unique accounted-identity checks in Section 8.
 
 The terminal table MUST contain no ANSI escape sequences or raw terminal
 control characters, whether stdout is attached to a terminal or redirected.
@@ -915,12 +1070,13 @@ stdout. The object MUST have this logical shape:
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 3,
   "root": "/absolute/root",
   "configuration": {
     "package_selectors": [],
     "workspace": false,
     "package_exclude_selectors": [],
+    "root_files": "include",
     "host_targets": ["x86_64-unknown-linux-gnu"],
     "targets": ["x86_64-unknown-linux-gnu"],
     "project_targets": [
@@ -936,13 +1092,18 @@ stdout. The object MUST have this logical shape:
     "target_includes": ["all-targets"],
     "target_excludes": []
   },
-  "packages": [
+  "rows": [
     {
-      "name": "example",
-      "package_id": "...",
-      "project_root": "/absolute/root",
-      "manifest_path": "/absolute/root/example/Cargo.toml",
+      "scope": {
+        "kind": "package",
+        "name": "example",
+        "package_id": "...",
+        "project_root": "/absolute/root",
+        "manifest_path": "/absolute/root/example/Cargo.toml"
+      },
       "language": "Rust",
+      "accounting_engine": "rust",
+      "accounting_precision": "configuration-aware",
       "files": 1,
       "lines": 10,
       "blanks": 2,
@@ -963,12 +1124,33 @@ stdout. The object MUST have this logical shape:
 }
 ```
 
+Schema version 3 requires every Scope/language row to identify its Scope and
+stable `accounting_engine` and `accounting_precision`. A Package Scope object
+MUST contain `kind: "package"`, `name`, `package_id`, `project_root`, and
+`manifest_path`. A Root Scope object MUST have exactly the stable identity
+fields `kind: "root"` and `path: "."`; it MUST NOT fabricate a Package ID.
+Configuration-aware Rust rows MUST use `rust` and `configuration-aware`.
+Unconfigured Rust rows MUST use `rust` and `unconfigured`. A lexical Accountant
+MUST use its documented engine identity and `lexical`. The `test` member MUST
+be an unsigned integer when test-only provenance is known and JSON `null` when
+it is unavailable. If any Scope/language row has a null `test`, the Total
+`test` MUST also be null. A report with no rows MUST use numeric zero. The other
+count members remain unsigned integers and use checked arithmetic.
+
+Configuration-aware accounting MAY count a Physical Line in both `comments`
+and `code` or `test`, as defined in Section 10. A lexical Accountant MAY expose
+mutually exclusive lexical categories when that is the underlying engine's
+documented contract, but MUST declare `accounting_precision` as `lexical` and
+MUST NOT imply Cargo target, feature, cfg, or test-provenance filtering.
+
 The concrete object MAY add fields in a backwards-compatible specification
 revision, but it MUST preserve the meanings and types shown above for schema
-version 1. `root` MUST be the canonical absolute Root identity used for
+version 3. `root` MUST be the canonical absolute Root identity used for
 discovery. The configuration object MUST describe the normalized selection
 request. `package_selectors` and `package_exclude_selectors` MUST be
 deterministically ordered arrays of the requested package specifications.
+`root_files` MUST be `include` or `exclude` and MUST describe the normalized
+Root Scope selection.
 `workspace` MUST indicate whether `--workspace` was explicit. `host_targets`
 MUST be the deterministically ordered, duplicate-free union of the host triples
 used by Projects containing at least one selected Package. `targets` MUST be
@@ -1006,14 +1188,14 @@ JSON numeric counts MUST be non-negative integers. Paths MUST be valid JSON
 strings and MUST be absolute so they do not depend on the consumer's working
 directory. A path MUST NOT be converted with a lossy replacement of non-UTF-8
 bytes; if a required path cannot be represented losslessly in JSON, report
-serialization MUST fail. `packages` MUST use the same order and aggregation
-semantics as the terminal-table rows. Every package record MUST contain all
-fields shown in the example. `package_id` MUST be Cargo's opaque Package ID serialized
-as a string, and consumers MUST NOT infer its internal format. `project_root`
-MUST identify the absolute Project root used for that Package. `manifest_path`
-MUST be the Package's absolute manifest path. Together, `package_id`,
-`project_root`, and `language` MUST unambiguously identify an aggregation row
-within one report.
+serialization MUST fail. `rows` MUST use the same order and aggregation
+semantics as the terminal-table rows. Every row MUST contain the fields shown
+in the example and one valid `scope` object. A Package Scope's `package_id`
+MUST be Cargo's opaque Package ID serialized as a string, and consumers MUST
+NOT infer its internal format. `project_root` MUST identify the absolute
+Project root used for that Package. `manifest_path` MUST be the Package's
+absolute manifest path. Scope identity and `language` MUST unambiguously
+identify an aggregation row within one report.
 
 The `warnings` array MUST contain every nonfatal warning produced while
 constructing a JSON report. Each warning MUST be an object containing stable
@@ -1023,11 +1205,12 @@ ordered deterministically.
 
 ### 11.3 Empty reports
 
-If no Cargo project, selected package, selected target, or supported source file
-contributes a row, cargo-loc MUST exit successfully and report zero totals.
+If no selected Package or supported source file contributes a row, cargo-loc
+MUST exit successfully and report zero totals. A Root with no Cargo project is
+not empty when its Root Source Inventory contains supported included files.
 
 Terminal-table output MUST contain the header and a zero-valued `Total` row.
-JSON output MUST contain an empty `packages` array and a `total` object
+JSON output MUST contain an empty `rows` array and a `total` object
 whose six numeric fields are zero.
 
 ### 11.4 Output streams
@@ -1059,8 +1242,7 @@ It MUST return a nonzero exit status for at least:
 - count overflow or output serialization failure.
 
 Command-line usage errors SHOULD use an exit status distinct from operational
-or analysis errors. The exact nonzero values are not otherwise stable in schema
-version 1.
+or analysis errors. The exact nonzero values are not otherwise stable.
 
 Diagnostics MUST identify the affected Project, Package, target, file, or
 option when that information is available. Multiple independent warnings MAY be
@@ -1071,8 +1253,10 @@ Conditions that SHOULD warn without failing include:
 
 - an `--exclude-target` selector that matches nothing;
 - a cfg predicate that may depend on an unmodeled custom cfg input;
-- inability to canonicalize a readable source path; and
-- a source file shared by distinct selected Packages.
+- an out-of-Root file-symlink target;
+- identity uncertainty that causes a candidate to be skipped;
+- equal-depth Package ownership ambiguity; and
+- a source file claimed by distinct selected Packages.
 
 Unsupported-language files MUST be ignored without warning by default.
 
@@ -1106,9 +1290,12 @@ An implementation MAY persist a complete report or retain resident analysis
 state. Such state MUST be versioned and MUST fail closed: it MUST NOT be used
 unless the implementation validates every modeled selection, project,
 configuration, environment, target, toolchain, source-identity, and source-
-content input that can alter the report. Corrupt, incompatible, or uncertain
-state MUST be rejected and recomputed. Cache storage beneath the Root MUST be
-excluded from Project discovery and from its own validity fingerprint.
+content input that can alter the report. The compatibility key MUST include the
+Root traversal, ignore, physical-identity, language-recognition, eligibility,
+ownership, routing, Accountant, and JSON schema policy versions. Corrupt,
+incompatible, or uncertain state MUST be rejected and recomputed. Cache storage
+beneath the Root MUST be excluded from discovery and from its own validity
+fingerprint.
 
 Deterministic output is REQUIRED even when discovery and accounting execute in
 parallel.
@@ -1129,18 +1316,14 @@ representation of every token passed to rustc. In particular:
 - source reached only through `include!` is not discovered through expansion;
 - Rust code embedded in documentation examples is not parsed as a separate
   doctest Target; its containing documentation remains comment source;
-- build-script-generated source is not counted unless independently present and
-  reachable as first-party source;
+- build-script-generated source is not discovered by executing a build script,
+  but an independently present, supported, non-ignored in-Root file remains
+  eligible through the Root Source Inventory;
 - build scripts are not executed to discover custom cfg values;
 - Cargo profile settings and arbitrary compiler flags that alter cfg values are
   not modeled by the baseline command;
 - `cfg!` control-flow branches are not removed; and
 - compiler optimization and dead-code elimination do not affect counts.
-
-The initial implementation MAY support only the Rust Accountant. The
-architecture MUST remain capable of adding other language Accountants, but this
-specification does not require a generic fallback or prescribe an internal Rust
-trait or public plugin ABI.
 
 Dependency source outside the Root is not project code and MUST NOT be counted.
 The specification does not currently define an option to count registry, Git,

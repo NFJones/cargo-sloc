@@ -14,8 +14,8 @@ use crate::app::ProcessOutput;
 use crate::cli::ParseOutcome;
 use crate::model::Selection;
 
-const SNAPSHOT_VERSION: u32 = 1;
-const PREPARATION_VERSION: u32 = 1;
+const SNAPSHOT_VERSION: u32 = 2;
+const PREPARATION_VERSION: u32 = 2;
 const CACHE_DIRECTORY: &str = "cargo-loc";
 
 #[derive(Deserialize, Serialize)]
@@ -42,6 +42,7 @@ struct SelectionRecord<'a> {
     package_selectors: Vec<&'a str>,
     workspace: bool,
     package_exclude_selectors: Vec<&'a str>,
+    root_files: &'static str,
     all_features: bool,
     no_default_features: bool,
     features: Vec<&'a str>,
@@ -121,6 +122,8 @@ pub struct ResidentSession {
     selection: Selection,
     prepared: Option<crate::app::PreparedExecution>,
     source_cache: crate::rust_source::SourceCache,
+    generic_source_cache: crate::generic_source::SourceCache,
+    generic_accounting_cache: crate::tokei_accounting::AccountingCache,
     preparation_fingerprint: Option<String>,
     input_manifest: Option<ResidentManifest>,
     output: Option<ProcessOutput>,
@@ -164,7 +167,12 @@ impl ResidentSession {
 
     fn refresh_inner(&mut self, retry_on_race: bool) -> ProcessOutput {
         let cache_root = cache_root(self.selection.root.as_path());
-        let dependencies = self.source_cache.dependencies().clone();
+        let dependencies = self
+            .source_cache
+            .dependencies()
+            .union(self.generic_source_cache.dependencies())
+            .cloned()
+            .collect();
         let input = match resident_manifest(
             &self.selection,
             &cache_root,
@@ -207,16 +215,25 @@ impl ResidentSession {
             return crate::app::execute(self.selection.clone());
         };
         self.source_cache
+            .set_validation(input.unchanged.clone(), input.changed_bytes.clone());
+        self.generic_source_cache
             .set_validation(input.unchanged, input.changed_bytes);
         let output = crate::app::execute_prepared_with_cache(
             self.selection.clone(),
             prepared.clone(),
             &mut self.source_cache,
+            &mut self.generic_source_cache,
+            &mut self.generic_accounting_cache,
         );
         if output.exit_code != 0 {
             return output;
         }
-        let dependencies = self.source_cache.dependencies().clone();
+        let dependencies = self
+            .source_cache
+            .dependencies()
+            .union(self.generic_source_cache.dependencies())
+            .cloned()
+            .collect();
         let Ok(after) = resident_manifest(
             &self.selection,
             &cache_root,
@@ -251,6 +268,8 @@ impl ResidentSession {
             selection,
             prepared: None,
             source_cache: crate::rust_source::SourceCache::default(),
+            generic_source_cache: crate::generic_source::SourceCache::default(),
+            generic_accounting_cache: crate::tokei_accounting::AccountingCache::default(),
             preparation_fingerprint: None,
             input_manifest: None,
             output: None,
@@ -514,6 +533,7 @@ fn selection_key(selection: &Selection) -> io::Result<String> {
         package_selectors: strings(&selection.package_selectors),
         workspace: selection.workspace,
         package_exclude_selectors: strings(&selection.package_exclude_selectors),
+        root_files: selection.root_files.as_str(),
         all_features: selection.all_features,
         no_default_features: selection.no_default_features,
         features: strings(&selection.features),
@@ -563,6 +583,7 @@ fn input_fingerprint(selection: &Selection, cache_root: &Path) -> io::Result<Str
     let mut state = Digest::new();
     state.add(b"cargo-loc-input-v1");
     state.add(env!("CARGO_PKG_VERSION").as_bytes());
+    state.add(compatibility_digest().as_bytes());
     hash_selection(selection, &mut state)?;
     let mut visited = BTreeSet::new();
     let snapshot_root = snapshot_project_root(selection, cache_root)?;
@@ -818,6 +839,7 @@ fn resident_manifest_fingerprint(
 ) -> io::Result<String> {
     let mut state = Digest::new();
     state.add(b"cargo-loc-resident-manifest-v1");
+    state.add(compatibility_digest().as_bytes());
     state.add(preparation_fingerprint.as_bytes());
     for (path, entry) in entries {
         if entry.kind == ResidentEntryKind::Missing {
@@ -888,6 +910,7 @@ fn preparation_fingerprint(selection: &Selection) -> io::Result<String> {
     let mut state = Digest::new();
     state.add(b"cargo-loc-preparation-v1");
     state.add(env!("CARGO_PKG_VERSION").as_bytes());
+    state.add(compatibility_digest().as_bytes());
     hash_selection(selection, &mut state)?;
     let mut visited = BTreeSet::new();
     hash_preparation_tree(
@@ -1231,6 +1254,30 @@ fn preparation_integrity(
     ]))
 }
 
+fn compatibility_digest() -> String {
+    compatibility_digest_for(
+        crate::report::JSON_SCHEMA_VERSION,
+        crate::tokei_accounting::CATALOG_VERSION,
+        crate::tokei_accounting::ADAPTER_VERSION,
+        crate::generic_source::INVENTORY_POLICY_VERSION,
+    )
+}
+
+fn compatibility_digest_for(
+    json_schema_version: u8,
+    catalog_version: &str,
+    adapter_version: u32,
+    inventory_policy_version: u32,
+) -> String {
+    digest([
+        b"cargo-loc-compatibility-v1".as_slice(),
+        &[json_schema_version],
+        catalog_version.as_bytes(),
+        &adapter_version.to_le_bytes(),
+        &inventory_policy_version.to_le_bytes(),
+    ])
+}
+
 fn digest<'a>(parts: impl IntoIterator<Item = &'a [u8]>) -> String {
     let mut state = Digest::new();
     for part in parts {
@@ -1571,6 +1618,55 @@ mod tests {
             Some(&1)
         );
         assert_eq!(reconfigured.output, crate::app::execute(selection));
+    }
+
+    #[test]
+    fn resident_session_reuses_unchanged_generic_bytes_and_lexical_results() {
+        let root = package("resident-generic");
+        fs::write(root.path().join("app.js"), "const original = true;\n")
+            .expect("write generic source");
+        fs::write(
+            root.path().join("tool"),
+            "#!/usr/bin/env python3\nprint('stable')\n",
+        )
+        .expect("write extensionless generic source");
+        let selection = selection(root.path());
+        let mut session = ResidentSession::from_selection(selection.clone());
+
+        let cold = session.refresh_with_metrics();
+        assert_eq!(cold.output.exit_code, 0);
+        assert_eq!(cold.metrics.caches.generic_source_misses, 5);
+        assert_eq!(cold.metrics.caches.generic_accounting_misses, 3);
+
+        let warm = session.refresh_with_metrics();
+        assert_eq!(warm.output, cold.output);
+        assert_eq!(warm.metrics.caches.snapshot_hits, 1);
+
+        fs::write(
+            root.path().join("app.js"),
+            "const original = true;\nconst edited = true;\n",
+        )
+        .expect("edit generic source");
+        let edited = session.refresh_with_metrics();
+
+        assert_eq!(edited.output.exit_code, 0);
+        assert_eq!(edited.metrics.subprocesses, 0);
+        assert_eq!(edited.metrics.caches.generic_source_hits, 4);
+        assert_eq!(edited.metrics.caches.generic_source_misses, 1);
+        assert_eq!(edited.metrics.caches.generic_accounting_hits, 2);
+        assert_eq!(edited.metrics.caches.generic_accounting_misses, 1);
+        assert_ne!(edited.output.stdout, warm.output.stdout);
+        assert_eq!(edited.output, crate::app::execute(selection));
+    }
+
+    #[test]
+    fn every_generic_compatibility_input_changes_the_snapshot_digest() {
+        let baseline = compatibility_digest_for(3, "tokei-14.0.0", 1, 1);
+
+        assert_ne!(baseline, compatibility_digest_for(4, "tokei-14.0.0", 1, 1));
+        assert_ne!(baseline, compatibility_digest_for(3, "tokei-15.0.0", 1, 1));
+        assert_ne!(baseline, compatibility_digest_for(3, "tokei-14.0.0", 2, 1));
+        assert_ne!(baseline, compatibility_digest_for(3, "tokei-14.0.0", 1, 2));
     }
 
     #[test]

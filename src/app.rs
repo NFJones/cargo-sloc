@@ -104,13 +104,23 @@ pub(crate) fn prepare(selection: &Selection) -> Result<PreparedExecution, AppErr
 
 pub(crate) fn execute_prepared(selection: Selection, prepared: PreparedExecution) -> ProcessOutput {
     let mut source_cache = crate::rust_source::SourceCache::default();
-    execute_prepared_with_cache(selection, prepared, &mut source_cache)
+    let mut generic_source_cache = crate::generic_source::SourceCache::default();
+    let mut generic_accounting_cache = crate::tokei_accounting::AccountingCache::default();
+    execute_prepared_with_cache(
+        selection,
+        prepared,
+        &mut source_cache,
+        &mut generic_source_cache,
+        &mut generic_accounting_cache,
+    )
 }
 
 pub(crate) fn execute_prepared_with_cache(
     selection: Selection,
     prepared: PreparedExecution,
     source_cache: &mut crate::rust_source::SourceCache,
+    generic_source_cache: &mut crate::generic_source::SourceCache,
+    generic_accounting_cache: &mut crate::tokei_accounting::AccountingCache,
 ) -> ProcessOutput {
     let PreparedExecution {
         inventory,
@@ -156,8 +166,25 @@ pub(crate) fn execute_prepared_with_cache(
             .map(|source| source.contexts.len())
             .sum(),
     );
-    let accounting = match crate::metrics::phase(crate::metrics::Phase::Accounting, || {
-        crate::rust_accounting::account(&sources)
+    let generic_sources =
+        match crate::metrics::phase(crate::metrics::Phase::SourceDiscovery, || {
+            crate::generic_source::discover_root_with_cache(
+                selection.root.as_path(),
+                &configured,
+                crate::tokei_accounting::is_candidate_path,
+                generic_source_cache,
+            )
+        }) {
+            Ok(sources) => sources,
+            Err(error) => return operational_error(error),
+        };
+    let routed = match crate::metrics::phase(crate::metrics::Phase::Accounting, || {
+        crate::routed_accounting::resolve(
+            &configured,
+            &sources,
+            &generic_sources,
+            generic_accounting_cache,
+        )
     }) {
         Ok(accounting) => accounting,
         Err(error) => return operational_error(error),
@@ -167,11 +194,12 @@ pub(crate) fn execute_prepared_with_cache(
         report.warnings = inventory.warnings;
         report.warnings.extend(configured.warnings.iter().cloned());
         report.warnings.extend(sources.warnings);
+        report.warnings.extend(generic_sources.warnings);
         report.warnings.sort();
         if let Err(error) = report.apply_configuration(&configured) {
             return operational_error(error);
         }
-        if let Err(error) = report.apply_accounting(&accounting) {
+        if let Err(error) = report.apply_contributions(&routed.contributions) {
             return operational_error(error);
         }
         match report.render() {

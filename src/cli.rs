@@ -6,19 +6,19 @@ use std::path::{Path, PathBuf};
 
 use clap::{ArgAction, Parser};
 
-use crate::model::{Root, Selection};
+use crate::model::{Root, RootFilePolicy, Selection};
 
 /// Parsed command-line options before filesystem normalization.
 #[derive(Debug, Parser)]
 #[command(
     name = "cargo-loc",
     version,
-    about = "Configuration-aware source line counts for Cargo projects",
-    long_about = "Count source associated with Cargo projects beneath PATH. By default, cargo-loc selects all eligible packages, all features, and all package targets.",
-    after_help = "Examples:\n  cargo loc\n  cargo loc ../workspace\n  cargo loc --features serde,simd\n  cargo loc --no-default-features --features serde\n  cargo loc --json"
+    about = "Source line counts for supported files beneath a directory",
+    long_about = "Count supported, non-ignored source beneath PATH. Reachable package Rust receives configuration-aware accounting; other recognized files are retained under their Package or the Root scope.",
+    after_help = "Examples:\n  cargo loc\n  cargo loc ../workspace\n  cargo loc --features serde,simd\n  cargo loc --no-default-features --features serde\n  cargo loc --root-files exclude\n  cargo loc --json"
 )]
 struct Arguments {
-    /// Root directory to search for Cargo projects.
+    /// Root directory to search for supported source and Cargo projects.
     #[arg(value_name = "PATH", default_value = ".")]
     root: PathBuf,
 
@@ -33,6 +33,10 @@ struct Arguments {
     /// Exclude a package from workspace-wide selection.
     #[arg(long, value_name = "SPEC", requires = "workspace", action = ArgAction::Append)]
     exclude: Vec<String>,
+
+    /// Include or exclude files whose final report owner is the Root.
+    #[arg(long, value_enum, default_value_t = RootFilePolicy::Include)]
+    root_files: RootFilePolicy,
 
     /// Enable a comma- or space-separated Cargo feature list.
     #[arg(short = 'F', long, value_name = "FEATURES", action = ArgAction::Append)]
@@ -94,7 +98,7 @@ struct Arguments {
     #[arg(long, value_name = "KIND[:NAME]", action = ArgAction::Append)]
     exclude_target: Vec<String>,
 
-    /// Emit schema-version 1 JSON instead of the terminal table.
+    /// Emit schema-version 3 JSON instead of the terminal table.
     #[arg(long)]
     json: bool,
 }
@@ -164,6 +168,7 @@ where
         package_selectors: parsed.packages.into_iter().collect(),
         workspace: parsed.workspace,
         package_exclude_selectors: parsed.exclude.into_iter().collect(),
+        root_files: parsed.root_files,
         all_features: parsed.all_features || (!features_requested && !parsed.no_default_features),
         no_default_features: parsed.no_default_features,
         features,

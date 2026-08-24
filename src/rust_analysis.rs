@@ -297,6 +297,26 @@ impl FileAnalysis {
             .collect())
     }
 
+    /// Projects every syntax token without applying Cargo cfg or harness semantics.
+    pub(crate) fn unconfigured_lines(&self) -> Vec<LineProjection> {
+        let mut lines = vec![LineProjection::default(); self.lines.ranges.len()];
+        for (index, has_non_whitespace) in self.has_non_whitespace.iter().enumerate() {
+            if !has_non_whitespace {
+                lines[index].blank = true;
+            }
+        }
+        for token in &self.tokens {
+            self.lines
+                .mark_lines(token.range.start, token.range.end, |line| {
+                    match token.kind {
+                        TokenKind::Comment => lines[line].comment = true,
+                        TokenKind::Code => lines[line].code = true,
+                    }
+                });
+        }
+        lines
+    }
+
     fn project_lines(
         &self,
         inactive_by_group: &[(ByteRange, ContextBits)],

@@ -77,6 +77,14 @@ pub struct CacheMetrics {
     pub parse_hits: u64,
     /// Parses required for a new physical source and edition.
     pub parse_misses: u64,
+    /// Reuses of retained generic-source bytes.
+    pub generic_source_hits: u64,
+    /// Reads required for generic-source bytes.
+    pub generic_source_misses: u64,
+    /// Reuses of per-file generic lexical accounting.
+    pub generic_accounting_hits: u64,
+    /// Generic files requiring lexical accounting.
+    pub generic_accounting_misses: u64,
     /// Reuses of a rustc cfg result within one Project resolution.
     pub cfg_hits: u64,
     /// rustc cfg probes required for a new target/crate-type key.
@@ -140,6 +148,8 @@ pub(crate) enum Query {
 #[derive(Clone, Copy)]
 pub(crate) enum Cache {
     Parse,
+    GenericSource,
+    GenericAccounting,
     Cfg,
 }
 
@@ -207,6 +217,22 @@ pub(crate) fn record_cache(cache: Cache, outcome: CacheOutcome, reason: &'static
             (Cache::Parse, CacheOutcome::Miss) => {
                 metrics.caches.parse_misses += 1;
                 ("parse", "miss")
+            }
+            (Cache::GenericSource, CacheOutcome::Hit) => {
+                metrics.caches.generic_source_hits += 1;
+                ("generic-source", "hit")
+            }
+            (Cache::GenericSource, CacheOutcome::Miss) => {
+                metrics.caches.generic_source_misses += 1;
+                ("generic-source", "miss")
+            }
+            (Cache::GenericAccounting, CacheOutcome::Hit) => {
+                metrics.caches.generic_accounting_hits += 1;
+                ("generic-accounting", "hit")
+            }
+            (Cache::GenericAccounting, CacheOutcome::Miss) => {
+                metrics.caches.generic_accounting_misses += 1;
+                ("generic-accounting", "miss")
             }
             (Cache::Cfg, CacheOutcome::Hit) => {
                 metrics.caches.cfg_hits += 1;

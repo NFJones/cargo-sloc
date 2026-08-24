@@ -8,7 +8,7 @@ use cargo_loc::cli::ParseOutcome;
 use cargo_loc::configuration::resolve;
 use cargo_loc::discovery::discover;
 use cargo_loc::error::AppError;
-use cargo_loc::model::{Counts, Selection};
+use cargo_loc::model::{Counts, Selection, TestCount};
 use cargo_loc::rust_accounting::{AccountingInventory, account};
 use cargo_loc::rust_source::discover as discover_sources;
 use tempfile::TempDir;
@@ -43,7 +43,7 @@ tokens! { #[cfg(any())] const inside_macro: u8 = 0; }
             blanks: 0,
             comments: 1,
             code: 7,
-            test: 4,
+            test: TestCount::Known(4),
         }
     );
 }
@@ -76,7 +76,7 @@ pub fn tail_macro() {
             blanks: 0,
             comments: 0,
             code: 6,
-            test: 0,
+            test: TestCount::Known(0),
         }
     );
 }
@@ -123,7 +123,7 @@ pub fn matched(value: u8) {
             blanks: 0,
             comments: 0,
             code: 14,
-            test: 0,
+            test: TestCount::Known(0),
         }
     );
 }
@@ -155,7 +155,7 @@ fn main() {}\n",
             blanks: 1,
             comments: 5,
             code: 7,
-            test: 0,
+            test: TestCount::Known(0),
         }
     );
 }
@@ -185,7 +185,7 @@ fn empty_and_inactive_only_files_still_count_as_files() {
             blanks: 0,
             comments: 0,
             code: 2,
-            test: 0,
+            test: TestCount::Known(0),
         }
     );
 }
@@ -209,7 +209,7 @@ fn harness_free_test_and_bench_sources_are_test_without_cfg_test() {
             blanks: 0,
             comments: 0,
             code: 0,
-            test: 2,
+            test: TestCount::Known(2),
         }
     );
 }

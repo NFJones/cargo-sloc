@@ -14,7 +14,9 @@ use cargo_loc::cli::ParseOutcome;
 use cargo_loc::metrics::PipelineMetrics;
 use cargo_loc::report::Report;
 use criterion::{BatchSize, BenchmarkId, Criterion};
-use support::{DivergentContextWorkspace, SharedTargetWorkspace, SyntheticWorkspace};
+use support::{
+    DivergentContextWorkspace, MixedLanguageWorkspace, SharedTargetWorkspace, SyntheticWorkspace,
+};
 
 const DEFAULT_SCENARIO_SAMPLES: usize = 10;
 
@@ -22,6 +24,7 @@ fn pipeline_benchmarks(criterion: &mut Criterion) {
     let fixture = SyntheticWorkspace::new(4, 8, 50);
     let shared_targets = SharedTargetWorkspace::new(24, 20, 20);
     let divergent_contexts = DivergentContextWorkspace::new(20, 50);
+    let mixed_languages = MixedLanguageWorkspace::new(64, 8, 200);
     let resident_arguments = || {
         [
             OsString::from("--json"),
@@ -171,6 +174,33 @@ fn pipeline_benchmarks(criterion: &mut Criterion) {
             black_box(measured)
         });
     });
+    group.bench_function("mixed_language_cold", |bencher| {
+        bencher.iter_batched(
+            || MixedLanguageWorkspace::new(64, 8, 200),
+            |fixture| {
+                let measured = cargo_loc::run_with_metrics([
+                    OsString::from("--json"),
+                    fixture.root().as_os_str().to_owned(),
+                ]);
+                assert_eq!(measured.output.exit_code, 0, "mixed benchmark failed");
+                black_box(measured)
+            },
+            BatchSize::PerIteration,
+        );
+    });
+    let mut mixed_resident = ResidentSession::new([
+        OsString::from("--json"),
+        mixed_languages.root().as_os_str().to_owned(),
+    ])
+    .expect("create mixed-language resident benchmark session");
+    assert_eq!(mixed_resident.refresh().exit_code, 0);
+    group.bench_function("mixed_language_warm_no_change", |bencher| {
+        bencher.iter(|| {
+            let measured = mixed_resident.refresh_with_metrics();
+            assert_eq!(measured.output.exit_code, 0, "mixed warm benchmark failed");
+            black_box(measured)
+        });
+    });
 
     let binary = cargo_loc_binary();
     for (size, dimensions) in [
@@ -292,6 +322,33 @@ fn report_scenario_metrics() {
         })
         .collect::<Vec<_>>();
     print_scenario("one_source_edit", &edited);
+
+    let mixed_fixture = MixedLanguageWorkspace::new(64, 8, 200);
+    let mixed_arguments = || {
+        [
+            OsString::from("--json"),
+            mixed_fixture.root().as_os_str().to_owned(),
+        ]
+    };
+    let mixed_cold = cargo_loc::run_with_metrics(mixed_arguments());
+    assert_eq!(mixed_cold.output.exit_code, 0);
+    print_scenario("mixed_language_cold", &[mixed_cold.metrics]);
+
+    let mut mixed_session =
+        ResidentSession::new(mixed_arguments()).expect("create mixed-language scenario session");
+    let _ = mixed_session.refresh();
+    let mixed_warm = (0..sample_count)
+        .map(|_| mixed_session.refresh_with_metrics().metrics)
+        .collect::<Vec<_>>();
+    print_scenario("mixed_language_warm_no_change", &mixed_warm);
+
+    let mixed_edited = (0..sample_count)
+        .map(|index| {
+            mixed_fixture.set_source_edit(index % 2 == 0);
+            mixed_session.refresh_with_metrics().metrics
+        })
+        .collect::<Vec<_>>();
+    print_scenario("mixed_language_one_source_edit", &mixed_edited);
 }
 
 fn resident(fixture: &SyntheticWorkspace) -> ResidentSession {
@@ -344,6 +401,10 @@ fn print_scenario(name: &str, runs: &[PipelineMetrics]) {
         "caches": {
             "parse_hits": first.caches.parse_hits,
             "parse_misses": first.caches.parse_misses,
+            "generic_source_hits": first.caches.generic_source_hits,
+            "generic_source_misses": first.caches.generic_source_misses,
+            "generic_accounting_hits": first.caches.generic_accounting_hits,
+            "generic_accounting_misses": first.caches.generic_accounting_misses,
             "cfg_hits": first.caches.cfg_hits,
             "cfg_misses": first.caches.cfg_misses,
             "snapshot_hits": first.caches.snapshot_hits,

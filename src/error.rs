@@ -25,7 +25,7 @@ pub enum AppError {
     /// The requested Root exists but is not a directory.
     #[error("invalid Root `{}`: path is not a directory", .0.display())]
     RootNotDirectory(PathBuf),
-    /// A path required by JSON schema version 1 is not valid UTF-8.
+    /// A path required by the JSON schema is not valid UTF-8.
     #[error("cannot represent path `{}` losslessly in JSON", .0.display())]
     NonUtf8JsonPath(PathBuf),
     /// A Cargo-reported path could not be canonicalized.

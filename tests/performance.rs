@@ -26,9 +26,9 @@ fn repeated_synthetic_workspace_reports_are_byte_identical() {
 
     let report: serde_json::Value =
         serde_json::from_slice(&first.stdout).expect("parse deterministic report");
-    assert_eq!(report["packages"].as_array().map(Vec::len), Some(3));
-    assert_eq!(report["total"]["files"], 15);
-    assert_eq!(report["total"]["lines"], 255);
+    assert_eq!(report["rows"].as_array().map(Vec::len), Some(7));
+    assert_eq!(report["total"]["files"], 19);
+    assert_eq!(report["total"]["lines"], 282);
 }
 
 #[test]
@@ -95,7 +95,7 @@ fn cold_warm_and_one_source_edit_reports_are_deterministic() {
     assert_eq!(first_edit.metrics.workload, warm.metrics.workload);
     let edited_report: serde_json::Value =
         serde_json::from_slice(&first_edit.output.stdout).expect("parse edited report");
-    assert_eq!(edited_report["total"]["lines"], 256);
+    assert_eq!(edited_report["total"]["lines"], 283);
 
     fs::write(&edited_path, original).expect("restore edited source");
     let restored = cargo_loc::run_with_metrics(arguments());
@@ -142,8 +142,8 @@ fn cfg_equivalent_report_contexts_share_one_source_analysis() {
         .as_array()
         .expect("feature contexts");
     assert!(report_contexts.len() >= 9, "all target labels must remain");
-    assert_eq!(report["total"]["files"], 1);
-    assert_eq!(report["total"]["lines"], 1);
+    assert_eq!(report["total"]["files"], 2);
+    assert_eq!(report["total"]["lines"], 59);
     assert!(measured.metrics.workload.build_contexts >= 9);
     assert_eq!(measured.metrics.workload.semantic_contexts, 1);
     assert_eq!(measured.metrics.workload.source_contexts, 1);

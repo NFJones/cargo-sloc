@@ -57,6 +57,26 @@ pub struct PackageId(pub String);
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct TargetId(pub String);
 
+/// Whether contributions owned by the requested Root are included.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, clap::ValueEnum)]
+pub enum RootFilePolicy {
+    /// Include supported files that do not resolve to one selected Package.
+    #[default]
+    Include,
+    /// Exclude contributions whose final owner is the Root.
+    Exclude,
+}
+
+impl RootFilePolicy {
+    /// Returns the stable CLI and JSON spelling.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Include => "include",
+            Self::Exclude => "exclude",
+        }
+    }
+}
+
 /// Production or test report provenance.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 pub enum ContextKind {
@@ -88,6 +108,46 @@ pub enum CfgOption {
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct SourceIdentity(pub PathBuf);
 
+/// Availability-aware count of test-only code lines.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(untagged)]
+pub enum TestCount {
+    /// The Accountant can classify test-only provenance.
+    Known(u64),
+    /// The Accountant cannot classify test-only provenance.
+    Unavailable,
+}
+
+impl Default for TestCount {
+    fn default() -> Self {
+        Self::Known(0)
+    }
+}
+
+impl TestCount {
+    /// Adds two Test counts, propagating unavailability and detecting overflow.
+    pub fn checked_add(self, other: Self) -> Result<Self, AppError> {
+        match (self, other) {
+            (Self::Known(left), Self::Known(right)) => left
+                .checked_add(right)
+                .map(Self::Known)
+                .ok_or(AppError::CountOverflow("adding test counts")),
+            (Self::Unavailable, _) | (_, Self::Unavailable) => Ok(Self::Unavailable),
+        }
+    }
+
+    /// Increments a known Test count with overflow detection.
+    pub fn checked_increment(self, operation: &'static str) -> Result<Self, AppError> {
+        match self {
+            Self::Known(value) => value
+                .checked_add(1)
+                .map(Self::Known)
+                .ok_or(AppError::CountOverflow(operation)),
+            Self::Unavailable => Ok(Self::Unavailable),
+        }
+    }
+}
+
 /// Common unsigned report measures.
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 pub struct Counts {
@@ -101,8 +161,8 @@ pub struct Counts {
     pub comments: u64,
     /// Production code lines.
     pub code: u64,
-    /// Test-only code lines.
-    pub test: u64,
+    /// Test-only code lines, when the Accountant can determine provenance.
+    pub test: TestCount,
 }
 
 impl Counts {
@@ -129,11 +189,47 @@ impl Counts {
                 .code
                 .checked_add(other.code)
                 .ok_or(AppError::CountOverflow("adding code counts"))?,
-            test: self
-                .test
-                .checked_add(other.test)
-                .ok_or(AppError::CountOverflow("adding test counts"))?,
+            test: self.test.checked_add(other.test)?,
         })
+    }
+}
+
+#[cfg(test)]
+mod count_tests {
+    use super::{Counts, TestCount};
+
+    #[test]
+    fn unavailable_test_counts_propagate_through_checked_addition() {
+        let known = Counts {
+            test: TestCount::Known(7),
+            ..Counts::default()
+        };
+        let unavailable = Counts {
+            test: TestCount::Unavailable,
+            ..Counts::default()
+        };
+
+        assert_eq!(
+            known
+                .checked_add(unavailable)
+                .expect("add unavailable Test count")
+                .test,
+            TestCount::Unavailable
+        );
+    }
+
+    #[test]
+    fn known_test_count_overflow_is_rejected() {
+        let maximum = Counts {
+            test: TestCount::Known(u64::MAX),
+            ..Counts::default()
+        };
+        let one = Counts {
+            test: TestCount::Known(1),
+            ..Counts::default()
+        };
+
+        assert!(maximum.checked_add(one).is_err());
     }
 }
 
@@ -148,6 +244,8 @@ pub struct Selection {
     pub workspace: bool,
     /// Requested workspace package exclusions.
     pub package_exclude_selectors: BTreeSet<String>,
+    /// Whether Root-owned source contributions are included.
+    pub root_files: RootFilePolicy,
     /// Whether all features are active.
     pub all_features: bool,
     /// Whether default features are disabled.

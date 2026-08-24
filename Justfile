@@ -37,12 +37,31 @@ clippy:
 test:
     cargo test --all-targets --all-features --no-fail-fast --quiet
 
+# Run the phase and end-to-end performance benchmarks.
+bench *args:
+    cargo bench --bench pipeline -- {{args}}
+
+# Compile the benchmark and execute a single smoke-test iteration per case.
+bench-smoke:
+    CARGO_LOC_BENCH_SCENARIO_SAMPLES=1 cargo bench --bench pipeline -- --test
+
 # Run the complete local validation suite.
 ci: fmt-check check clippy test
 
+# List the exact files included in a published crate archive.
+package-list:
+    cargo package --locked --list
+
 # Verify the crate can be packaged for publication.
 package:
-    cargo package
+    cargo package --locked
+
+# Package, extract, install, and exercise the exact published crate artifact.
+install-smoke:
+    ./scripts/package-smoke.sh
+
+# Run the complete release-readiness suite on a clean checkout.
+release-check: ci bench-smoke install-smoke
 
 # Remove Cargo build artifacts.
 clean:

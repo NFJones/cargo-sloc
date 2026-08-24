@@ -25,7 +25,7 @@
     - [10.4 Test classification](#104-test-classification)
     - [10.5 Arithmetic and overflow](#105-arithmetic-and-overflow)
   - [11. Reports and Output Formats](#11-reports-and-output-formats)
-    - [11.1 Markdown](#111-markdown)
+    - [11.1 Terminal table](#111-terminal-table)
     - [11.2 JSON](#112-json)
     - [11.3 Empty reports](#113-empty-reports)
     - [11.4 Output streams](#114-output-streams)
@@ -872,14 +872,13 @@ the same overflow behavior.
 
 ## 11. Reports and Output Formats
 
-### 11.1 Markdown
+### 11.1 Terminal table
 
-Markdown MUST be the default output format. Successful default output MUST be a
-valid GitHub-Flavored Markdown pipe table with these columns in this order:
+A deterministic UTF-8 terminal table MUST be the default output format.
+Successful default output MUST contain these columns in this order:
 
 ```text
-| Package | Language | Files | Lines | Blanks | Comments | Code | Test |
-| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+Package, Language, Files, Lines, Blanks, Comments, Code, Test
 ```
 
 There MUST be one row for each selected Package and supported language pair
@@ -887,13 +886,15 @@ with at least one discovered file. The `Package` cell identifies the
 Package-level aggregation row; it does not identify an individual Rust crate or
 Cargo Target. It MUST normally contain the Cargo package name. If names collide
 within the invocation, cargo-loc MUST add a stable Root-relative path or
-equivalent package qualifier so the displayed labels are unique. Text cells
-MUST escape pipe characters, backslashes, and other content that would
-invalidate the table.
+equivalent package qualifier so the displayed labels are unique. Printable
+text, including pipe characters and backslashes, MUST be preserved. Embedded
+line breaks, tabs, escape characters, and other control characters MUST be
+represented visibly rather than emitted as raw terminal controls.
 
 Rows MUST be ordered deterministically, first by package label and then by
 language. Language names MUST use stable display spelling; the Rust Accountant
-MUST emit `Rust`.
+MUST emit `Rust`. Text columns MUST be left-aligned, and numeric columns MUST be
+right-aligned.
 
 The final row MUST be a `Total` row whose numeric values are arithmetic sums of
 the preceding rows. Its `Package` cell MUST be `Total` and its `Language` cell
@@ -901,14 +902,16 @@ MUST be `All`. Because files are deduplicated within a Package but may
 participate in two Packages, the `Total` row MUST follow the Package-row
 semantics in Section 8 rather than global path deduplication.
 
-The Markdown report MUST contain no ANSI escape sequences when stdout is not a
-terminal. An implementation MAY offer terminal styling in the future only if
-the bytes remain usable as Markdown or styling is explicitly requested.
+The terminal table MUST contain no ANSI escape sequences or raw terminal
+control characters, whether stdout is attached to a terminal or redirected.
+Its layout MUST NOT depend on terminal width, TTY state, or ambient styling.
+The complete table MUST be buffered deterministically and end with exactly one
+line feed.
 
 ### 11.2 JSON
 
-`--json` MUST replace Markdown output with one UTF-8 JSON object on stdout. The
-object MUST have this logical shape:
+`--json` MUST replace terminal-table output with one UTF-8 JSON object on
+stdout. The object MUST have this logical shape:
 
 ```json
 {
@@ -1004,8 +1007,8 @@ strings and MUST be absolute so they do not depend on the consumer's working
 directory. A path MUST NOT be converted with a lossy replacement of non-UTF-8
 bytes; if a required path cannot be represented losslessly in JSON, report
 serialization MUST fail. `packages` MUST use the same order and aggregation
-semantics as the Markdown rows. Every package record MUST contain all fields
-shown in the example. `package_id` MUST be Cargo's opaque Package ID serialized
+semantics as the terminal-table rows. Every package record MUST contain all
+fields shown in the example. `package_id` MUST be Cargo's opaque Package ID serialized
 as a string, and consumers MUST NOT infer its internal format. `project_root`
 MUST identify the absolute Project root used for that Package. `manifest_path`
 MUST be the Package's absolute manifest path. Together, `package_id`,
@@ -1023,16 +1026,16 @@ ordered deterministically.
 If no Cargo project, selected package, selected target, or supported source file
 contributes a row, cargo-loc MUST exit successfully and report zero totals.
 
-Markdown output MUST contain the header, separator, and a zero-valued `Total`
-row. JSON output MUST contain an empty `packages` array and a `total` object
+Terminal-table output MUST contain the header and a zero-valued `Total` row.
+JSON output MUST contain an empty `packages` array and a `total` object
 whose six numeric fields are zero.
 
 ### 11.4 Output streams
 
 The selected report MUST be written to stdout. Diagnostics MUST be written to
-stderr and MUST NOT corrupt the Markdown or JSON document on stdout. Successful
-JSON warnings MUST appear in the JSON `warnings` field and MAY also be shown on
-stderr when stderr is a terminal.
+stderr and MUST NOT corrupt the terminal table or JSON document on stdout.
+Successful JSON warnings MUST appear in the JSON `warnings` field and MAY also
+be shown on stderr when stderr is a terminal.
 
 If accounting or serialization fails, cargo-loc MUST NOT write a partial report
 that could be mistaken for a successful complete result. It SHOULD buffer the
@@ -1099,6 +1102,14 @@ The implementation SHOULD:
   handling; and
 - aggregate counts without retaining unnecessary per-line records.
 
+An implementation MAY persist a complete report or retain resident analysis
+state. Such state MUST be versioned and MUST fail closed: it MUST NOT be used
+unless the implementation validates every modeled selection, project,
+configuration, environment, target, toolchain, source-identity, and source-
+content input that can alter the report. Corrupt, incompatible, or uncertain
+state MUST be rejected and recomputed. Cache storage beneath the Root MUST be
+excluded from Project discovery and from its own validity fingerprint.
+
 Deterministic output is REQUIRED even when discovery and accounting execute in
 parallel.
 
@@ -1147,8 +1158,9 @@ The project MUST use semantic versioning for released command-line behavior.
 Before version 1.0, incompatible corrections MAY occur between minor versions
 but SHOULD be documented in release notes.
 
-The Markdown column names, order, and meanings defined in Section 11 are part of
-the human-readable interface. Cosmetic spacing and alignment are not stable.
+The terminal-table column names, order, meanings, and text/numeric alignment
+defined in Section 11 are part of the human-readable interface. Border glyphs,
+spacing, and other cosmetic layout are not stable.
 
 The JSON `schema_version` is independent of the package version. A change that
 removes a required field, changes a field's type or meaning, or changes
@@ -1172,7 +1184,6 @@ silently applying semantics from another version.
 - RFC 2119: <https://www.rfc-editor.org/rfc/rfc2119>
 - RFC 8174: <https://www.rfc-editor.org/rfc/rfc8174>
 - JSON (RFC 8259): <https://www.rfc-editor.org/rfc/rfc8259>
-- GitHub Flavored Markdown: <https://github.github.com/gfm/>
 - Cargo external tools: <https://doc.rust-lang.org/cargo/reference/external-tools.html>
 - `cargo build`: <https://doc.rust-lang.org/cargo/commands/cargo-build.html>
 - `cargo metadata`: <https://doc.rust-lang.org/cargo/commands/cargo-metadata.html>

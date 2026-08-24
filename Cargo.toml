@@ -2,11 +2,49 @@
 name = "cargo-loc"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.95"
 description = "A Cargo subcommand for configuration-aware Rust source line counts"
 license = "Apache-2.0"
 repository = "https://github.com/neil/cargo-loc"
 readme = "README.md"
+include = [
+    "/src/**",
+    "/tests/**",
+    "/benches/**",
+    "/docs/**",
+    "/Cargo.toml",
+    "/Cargo.lock",
+    "/README.md",
+    "/SPEC.md",
+    "/COPYING",
+    "/CHANGELOG.md",
+    "/AGENTS.md",
+    "/Justfile",
+    "/.gitignore",
+]
 keywords = ["cargo", "loc", "rust", "cfg", "features"]
 categories = ["development-tools::cargo-plugins", "development-tools"]
 
 [dependencies]
+cargo-config2 = "0.1.45"
+cargo_metadata = "0.23.1"
+cargo_toml = "1.0.0"
+clap = { version = "4.5.60", features = ["derive"] }
+comfy-table = { version = "7.1.4", default-features = false }
+guppy = "0.17.26"
+ignore = "0.4.33"
+ra_ap_syntax = "=0.0.349"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+thiserror = "2.0.20"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2.189"
+
+[dev-dependencies]
+criterion = { version = "0.8.2", default-features = false, features = ["cargo_bench_support"] }
+tempfile = "3.21.0"
+
+[[bench]]
+name = "pipeline"
+harness = false

@@ -1,0 +1,11 @@
+[package]
+name = "shared"
+version = "0.0.0"
+edition = "2024"
+
+[features]
+build = []
+dev = []
+normal = []
+unix = []
+windows = []

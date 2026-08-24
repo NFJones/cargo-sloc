@@ -1,22 +1,21 @@
-//! Entry point for the `cargo loc` external Cargo subcommand.
+//! Process entry point for the `cargo loc` external Cargo subcommand.
 
-fn main() {
-    let arguments: Vec<_> = std::env::args_os().skip(1).collect();
+use std::io::Write;
+use std::process::ExitCode;
 
-    if arguments.iter().any(|argument| argument == "--version") {
-        println!("cargo-loc {}", env!("CARGO_PKG_VERSION"));
-        return;
+fn main() -> ExitCode {
+    let output = cargo_loc::run(std::env::args_os().skip(1));
+
+    if let Err(error) = std::io::stdout().write_all(&output.stdout) {
+        let _ = writeln!(
+            std::io::stderr(),
+            "cargo-loc: failed to write stdout: {error}"
+        );
+        return ExitCode::from(1);
+    }
+    if std::io::stderr().write_all(&output.stderr).is_err() {
+        return ExitCode::from(1);
     }
 
-    println!(
-        "cargo-loc: configuration-aware Rust source line counts\n\
-         \n\
-         Usage: cargo loc [OPTIONS]\n\
-         \n\
-         This command is scaffolded; see SPEC.md for the proposed behavior.\n\
-         \n\
-         Options:\n\
-           -h, --help     Print help\n\
-               --version  Print version"
-    );
+    ExitCode::from(output.exit_code)
 }

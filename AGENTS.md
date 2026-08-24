@@ -93,7 +93,7 @@ NOT rely on GNU-only shell extensions.
 - Unsupported-language files are ignored by default. Shared infrastructure
   MUST remain capable of supporting future language Accountants.
 - Required report failures MUST leave stdout empty rather than emitting a
-  partial Markdown or JSON document.
+  partial terminal table or JSON document.
 
 ## Testing Requirements
 

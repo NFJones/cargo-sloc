@@ -1,0 +1,19 @@
+[package]
+name = "app"
+version = "0.0.0"
+edition = "2024"
+
+[dependencies]
+shared = { path = "../shared", features = ["normal"] }
+
+[build-dependencies]
+shared = { path = "../shared", features = ["build"] }
+
+[dev-dependencies]
+shared = { path = "../shared", features = ["dev"] }
+
+[target.'cfg(unix)'.dependencies]
+shared = { path = "../shared", features = ["unix"] }
+
+[target.'cfg(windows)'.dependencies]
+shared = { path = "../shared", features = ["windows"] }

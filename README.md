@@ -5,6 +5,7 @@
   <a href="https://github.com/NFJones/cargo-sloc/forks"><img alt="GitHub forks" src="https://img.shields.io/github/forks/NFJones/cargo-sloc?style=flat-square"></a>
   <a href="https://github.com/NFJones/cargo-sloc/issues"><img alt="GitHub issues" src="https://img.shields.io/github/issues/NFJones/cargo-sloc?style=flat-square"></a>
   <a href="https://github.com/NFJones/cargo-sloc/actions"><img alt="Build status" src="https://img.shields.io/github/actions/workflow/status/NFJones/cargo-sloc/ci.yml?style=flat-square"></a>
+  <a href="https://crates.io/crates/cargo-sloc"><img alt="Crates.io Version" src="https://img.shields.io/crates/v/cargo-sloc"></a>
 </p>
 </div>
 </div>
@@ -100,13 +101,23 @@ ignore, ownership, and analysis rules.
 The default report is a deterministic terminal table:
 
 ```text
- Package ┆ Language ┆ Files ┆ Total ┆ Lines ┆ Blanks ┆ Comments ┆ Code ┆ Test
-═════════╪══════════╪═══════╪═══════╪═══════╪════════╪══════════╪══════╪══════
- cargo-sloc ┆ Rust     ┆    24 ┆  1200 ┆  1200 ┆     85 ┆      110 ┆  830 ┆  175
-╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌┼╌╌╌╌╌╌
-           ┆ TOML     ┆     1 ┆    20 ┆    20 ┆      2 ┆        0 ┆   18 ┆  n/a
-╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌┼╌╌╌╌╌╌
- Total     ┆ All      ┆    25 ┆  1220 ┆  1220 ┆     87 ┆      110 ┆  848 ┆  175
+ Package    ┆ Language            ┆ Files ┆ Total ┆ Lines ┆ Blanks ┆ Comments ┆ Code ┆ Test 
+════════════╪═════════════════════╪═══════╪═══════╪═══════╪════════╪══════════╪══════╪══════
+ cargo-sloc ┆ Rust                ┆    32 ┆ 13761 ┆ 13761 ┆   1027 ┆      537 ┆ 7112 ┆ 5085 
+╌╌╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌┼╌╌╌╌╌╌
+            ┆ Markdown            ┆     3 ┆  1699 ┆  1699 ┆    301 ┆     1344 ┆   54 ┆  n/a 
+╌╌╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌┼╌╌╌╌╌╌
+            ┆ Shell               ┆     1 ┆   101 ┆   101 ┆     16 ┆        1 ┆   84 ┆  n/a 
+╌╌╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌┼╌╌╌╌╌╌
+            ┆ Rust (unconfigured) ┆    13 ┆    89 ┆    89 ┆     13 ┆        1 ┆   75 ┆  n/a 
+╌╌╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌┼╌╌╌╌╌╌
+            ┆ Just                ┆     1 ┆    72 ┆    72 ┆     18 ┆       19 ┆   35 ┆  n/a 
+╌╌╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌┼╌╌╌╌╌╌
+            ┆ TOML                ┆     1 ┆    51 ┆    51 ┆      4 ┆        0 ┆   47 ┆  n/a 
+╌╌╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌┼╌╌╌╌╌╌
+            ┆ YAML                ┆     1 ┆    41 ┆    41 ┆      5 ┆        0 ┆   36 ┆  n/a 
+╌╌╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌┼╌╌╌╌╌╌
+ Total      ┆ All                 ┆    52 ┆ 15814 ┆ 15814 ┆   1384 ┆     1902 ┆ 7443 ┆ 5085 
 ```
 
 Rows aggregate a scope (a Cargo package or `<root>`) and language. The columns

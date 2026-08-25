@@ -166,7 +166,7 @@ impl ResidentSession {
     }
 
     fn refresh_inner(&mut self, retry_on_race: bool) -> ProcessOutput {
-        let cache_root = cache_root(self.selection.root.as_path());
+        let cache_root = cache_root();
         let dependencies = self
             .source_cache
             .dependencies()
@@ -278,7 +278,7 @@ impl ResidentSession {
 }
 
 pub(crate) fn run(selection: Selection) -> ProcessOutput {
-    let cache_root = cache_root(selection.root.as_path());
+    let cache_root = cache_root();
     run_with_cache(selection, &cache_root)
 }
 
@@ -572,11 +572,15 @@ fn snapshot_project_root(selection: &Selection, cache_root: &Path) -> io::Result
     Ok(cache_root.join(digest([root.as_bytes()])))
 }
 
-fn cache_root(project_root: &Path) -> PathBuf {
+fn cache_root() -> PathBuf {
     if let Some(path) = std::env::var_os("CARGO_SLOC_CACHE_DIR") {
         return PathBuf::from(path);
     }
-    project_root.join(format!(".{CACHE_DIRECTORY}"))
+    std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(std::env::temp_dir)
+        .join(".cache")
+        .join(CACHE_DIRECTORY)
 }
 
 fn input_fingerprint(selection: &Selection, cache_root: &Path) -> io::Result<String> {
@@ -1373,6 +1377,16 @@ mod tests {
         assert_eq!(edited_warm.output, edited.output);
         assert_eq!(edited_warm.metrics.caches.snapshot_hits, 1);
         assert_eq!(edited_warm.metrics.subprocesses, 0);
+    }
+
+    #[test]
+    fn default_cache_root_is_under_home_cache() {
+        let cache = cache_root();
+        assert_eq!(cache.file_name(), Some(OsStr::new(CACHE_DIRECTORY)));
+        assert_eq!(
+            cache.parent().and_then(Path::file_name),
+            Some(OsStr::new(".cache"))
+        );
     }
 
     #[test]

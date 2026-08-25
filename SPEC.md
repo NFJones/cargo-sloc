@@ -297,10 +297,12 @@ Root, a selected feature set, non-default features, and JSON output.
 
 cargo-sloc MUST recursively discover Cargo manifests beneath the Root through
 the shared Root Source Inventory traversal. The traversal MUST structurally
-exclude `.git`, `.hg`, `.svn`, and cargo-sloc's `.cargo-sloc` state directory. It
-MUST honor paths excluded by `.gitignore` and `.ignore` files located at or
-beneath the Root. Hidden files and directories MUST NOT otherwise be excluded
-merely because their names begin with a dot.
+exclude `.git`, `.hg`, `.svn`, and the legacy `.cargo-sloc` cache directory. By
+default, persistent cache data MUST be stored under `$HOME/.cache/cargo-sloc`;
+`CARGO_SLOC_CACHE_DIR` MAY override that location. The traversal MUST honor
+paths excluded by `.gitignore` and `.ignore` files located at or beneath the
+Root. Hidden files and directories MUST NOT otherwise be excluded merely because
+their names begin with a dot.
 
 Ignore matching MUST begin at the Root and honor nested `.gitignore` and
 `.ignore` files using their documented pattern and precedence semantics.
@@ -693,11 +695,11 @@ but default operation SHOULD remain quiet.
 
 Generic-language discovery MUST consume the shared Root Source Inventory rather
 than delegating filesystem traversal to a language engine. Apart from the VCS
-administration and `.cargo-sloc` state directories specified in Section 6.1,
-non-ignored supported files MUST NOT be hard-coded out merely because they are
-in `target`, `vendor`, generated-output directories, or have lockfile-like
-names. Projects that do not want such source counted SHOULD exclude it through
-a supported Root-local ignore file.
+administration and legacy `.cargo-sloc` cache directories specified in Section
+6.1, non-ignored supported files MUST NOT be hard-coded out merely because they
+are in `target`, `vendor`, generated-output directories, or have lockfile-like
+names. Projects that do not want such source counted SHOULD exclude it through a
+supported Root-local ignore file.
 
 The inventory MUST collect all selected-Package containment and Rust graph
 claims before choosing ownership. It MUST then select exactly one Scope in this

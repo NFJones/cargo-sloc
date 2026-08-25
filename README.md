@@ -1,5 +1,5 @@
 <div align="center">
-<h1 align="center">Cargo LoC</h1>
+<h1 align="center">Cargo SLoC</h1>
 <p align="center">
   <a href="https://github.com/NFJones/cargo-sloc/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/NFJones/cargo-sloc?style=flat-square"></a>
   <a href="https://github.com/NFJones/cargo-sloc/forks"><img alt="GitHub forks" src="https://img.shields.io/github/forks/NFJones/cargo-sloc?style=flat-square"></a>

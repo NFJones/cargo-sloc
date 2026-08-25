@@ -3,9 +3,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-use comfy_table::{
-    Cell, CellAlignment, Row, Table, modifiers::UTF8_ROUND_CORNERS, presets::UTF8_FULL_CONDENSED,
-};
+use comfy_table::{Cell, CellAlignment, Row, Table, presets::UTF8_NO_BORDERS};
 use serde::{Deserialize, Serialize};
 
 use crate::accountant::{
@@ -283,8 +281,7 @@ impl Report {
     fn render_table(&self) -> Result<String, AppError> {
         let mut table = Table::new();
         table
-            .load_preset(UTF8_FULL_CONDENSED)
-            .apply_modifier(UTF8_ROUND_CORNERS)
+            .load_preset(UTF8_NO_BORDERS)
             .set_header(Row::from(vec![
                 text_cell("Package"),
                 text_cell("Language"),
@@ -704,19 +701,13 @@ mod tests {
         report.apply_rows(&rows).expect("apply mixed rows");
         let table = String::from_utf8(report.render().expect("render table")).expect("UTF-8 table");
 
-        assert!(table.contains("│ mixed   ┆ TypeScript ┆"));
-        assert!(table.contains("│         ┆ Rust       ┆"));
+        assert!(table.contains(" mixed   ┆ TypeScript ┆"));
+        assert!(table.contains("         ┆ Rust       ┆"));
         assert!(!table.contains("mixed ("));
         assert!(table.contains(
-            "│ Total   ┆ All        ┆     2 ┆     7 ┆     7 ┆      0 ┆        1 ┆    5 ┆    1 │"
+            " Total   ┆ All        ┆     2 ┆     7 ┆     7 ┆      0 ┆        1 ┆    5 ┆    1 "
         ));
-        assert!(
-            table
-                .lines()
-                .filter(|line| line.ends_with(" n/a │"))
-                .count()
-                == 1
-        );
+        assert!(table.lines().filter(|line| line.ends_with(" n/a ")).count() == 1);
     }
 
     #[test]

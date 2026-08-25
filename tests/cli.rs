@@ -6,11 +6,9 @@ use std::process::{Command, Output};
 use serde_json::Value;
 use tempfile::TempDir;
 
-const TABLE_EMPTY: &str = "╭─────────┬──────────┬───────┬───────┬───────┬────────┬──────────┬──────┬──────╮\n\
-│ Package ┆ Language ┆ Files ┆ Total ┆ Lines ┆ Blanks ┆ Comments ┆ Code ┆ Test │\n\
-╞═════════╪══════════╪═══════╪═══════╪═══════╪════════╪══════════╪══════╪══════╡\n\
-│ Total   ┆ All      ┆     0 ┆     0 ┆     0 ┆      0 ┆        0 ┆    0 ┆    0 │\n\
-╰─────────┴──────────┴───────┴───────┴───────┴────────┴──────────┴──────┴──────╯\n";
+const TABLE_EMPTY: &str = " Package ┆ Language ┆ Files ┆ Total ┆ Lines ┆ Blanks ┆ Comments ┆ Code ┆ Test \n\
+═════════╪══════════╪═══════╪═══════╪═══════╪════════╪══════════╪══════╪══════\n\
+\x20Total   ┆ All      ┆     0 ┆     0 ┆     0 ┆      0 ┆        0 ┆    0 ┆    0 \n";
 
 #[test]
 fn direct_and_cargo_style_invocation_are_equivalent() {

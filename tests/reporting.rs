@@ -16,13 +16,13 @@ fn table_renders_package_counts_and_total_exactly() {
     assert!(output.stderr.is_empty());
     assert_eq!(
         String::from_utf8(output.stdout).expect("UTF-8 table"),
-        "╭──────────┬──────────┬───────┬───────┬───────┬────────┬──────────┬──────┬──────╮\n\
-         │ Package  ┆ Language ┆ Files ┆ Total ┆ Lines ┆ Blanks ┆ Comments ┆ Code ┆ Test │\n\
-         ╞══════════╪══════════╪═══════╪═══════╪═══════╪════════╪══════════╪══════╪══════╡\n\
-         │ ordinary ┆ TOML     ┆     1 ┆     4 ┆     4 ┆      0 ┆        0 ┆    4 ┆  n/a │\n\
-         │          ┆ Rust     ┆     1 ┆     3 ┆     3 ┆      1 ┆        1 ┆    1 ┆    0 │\n\
-         │ Total    ┆ All      ┆     2 ┆     7 ┆     7 ┆      1 ┆        1 ┆    5 ┆    0 │\n\
-         ╰──────────┴──────────┴───────┴───────┴───────┴────────┴──────────┴──────┴──────╯\n"
+        " Package  ┆ Language ┆ Files ┆ Total ┆ Lines ┆ Blanks ┆ Comments ┆ Code ┆ Test \n\
+         ══════════╪══════════╪═══════╪═══════╪═══════╪════════╪══════════╪══════╪══════\n\
+         \x20ordinary ┆ TOML     ┆     1 ┆     4 ┆     4 ┆      0 ┆        0 ┆    4 ┆  n/a \n\
+         ╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌┼╌╌╌╌╌╌\n\
+         \x20         ┆ Rust     ┆     1 ┆     3 ┆     3 ┆      1 ┆        1 ┆    1 ┆    0 \n\
+         ╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌┼╌╌╌╌╌╌\n\
+         \x20Total    ┆ All      ┆     2 ┆     7 ┆     7 ┆      1 ┆        1 ┆    5 ┆    0 \n"
     );
 }
 
@@ -138,10 +138,7 @@ fn mixed_language_reports_merge_rust_extensions_and_shebang_sources() {
     assert!(table.contains("         ┆ Python     "));
     assert!(table.contains("         ┆ Rust       "));
     assert_eq!(
-        table
-            .lines()
-            .filter(|line| line.ends_with(" n/a │"))
-            .count(),
+        table.lines().filter(|line| line.ends_with(" n/a ")).count(),
         3,
         "only lexical rows have unavailable Test counts"
     );
@@ -167,8 +164,9 @@ fn duplicate_package_names_receive_stable_table_qualifiers() {
     let table = String::from_utf8(first.stdout).expect("UTF-8 table");
     assert!(table.contains("duplicate (a|pipe)"));
     assert!(table.contains("duplicate (b界\\slash)"));
-    assert!(table.contains("│ Total"));
-    assert!(table.ends_with("╯\n"));
+    assert!(table.contains(" Total"));
+    assert!(!table.contains('│'));
+    assert!(table.ends_with("\n"));
 }
 
 #[cfg(unix)]
@@ -309,11 +307,9 @@ fn valid_features_survive_an_empty_target_selection() {
     assert_success(&table);
     assert_eq!(
         String::from_utf8(table.stdout).expect("UTF-8 table"),
-        "╭─────────┬──────────┬───────┬───────┬───────┬────────┬──────────┬──────┬──────╮\n\
-         │ Package ┆ Language ┆ Files ┆ Total ┆ Lines ┆ Blanks ┆ Comments ┆ Code ┆ Test │\n\
-         ╞═════════╪══════════╪═══════╪═══════╪═══════╪════════╪══════════╪══════╪══════╡\n\
-         │ Total   ┆ All      ┆     0 ┆     0 ┆     0 ┆      0 ┆        0 ┆    0 ┆    0 │\n\
-         ╰─────────┴──────────┴───────┴───────┴───────┴────────┴──────────┴──────┴──────╯\n"
+        " Package ┆ Language ┆ Files ┆ Total ┆ Lines ┆ Blanks ┆ Comments ┆ Code ┆ Test \n\
+         ═════════╪══════════╪═══════╪═══════╪═══════╪════════╪══════════╪══════╪══════\n\
+         \x20Total   ┆ All      ┆     0 ┆     0 ┆     0 ┆      0 ┆        0 ┆    0 ┆    0 \n"
     );
 
     let json = run(

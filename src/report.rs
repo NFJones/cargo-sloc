@@ -310,18 +310,30 @@ impl Report {
             ));
             previous_scope = Some(row.scope.clone());
         }
-        let table_total = Counts {
-            test: TestCount::Known(self.packages.iter().try_fold(0_u64, |total, row| {
-                match row.counts.test {
-                    TestCount::Known(value) => total.checked_add(value).ok_or(
-                        AppError::CountOverflow("adding available table test counts"),
-                    ),
-                    TestCount::Unavailable => Ok(total),
-                }
-            })?),
-            ..self.total
-        };
-        table.add_row(report_table_row("Total", "All", table_total));
+        let language_totals = self.packages.iter().try_fold(
+            BTreeMap::<LanguageId, Counts>::new(),
+            |mut totals, row| {
+                let total = totals.entry(row.language).or_default();
+                *total = total.checked_add(row.counts)?;
+                Ok::<_, AppError>(totals)
+            },
+        )?;
+        for (index, (language, counts)) in language_totals.iter().enumerate() {
+            table.add_row(report_table_row(
+                if index == 0 { "Total" } else { "" },
+                &language.to_string(),
+                *counts,
+            ));
+        }
+        table.add_row(report_table_row(
+            if language_totals.is_empty() {
+                "Total"
+            } else {
+                ""
+            },
+            "All",
+            self.total,
+        ));
 
         let mut output = table.to_string();
         while output.ends_with('\n') {
@@ -645,7 +657,7 @@ mod tests {
     }
 
     #[test]
-    fn mixed_rows_render_unavailable_test_without_duplicate_package_qualifier() {
+    fn table_totals_aggregate_languages_across_scopes_and_propagate_unavailable_test() {
         let root = TempDir::new().expect("create Root");
         let root_identity =
             crate::model::Root::resolve(root.path(), root.path()).expect("resolve temporary Root");
@@ -667,6 +679,9 @@ mod tests {
         report
             .package_projects
             .insert("package-id".to_owned(), root.path().to_path_buf());
+        report
+            .package_projects
+            .insert("other-package-id".to_owned(), root.path().to_path_buf());
         let rows = vec![
             AccountingRow {
                 package_id: "package-id".to_owned(),
@@ -699,6 +714,21 @@ mod tests {
                     ..Counts::default()
                 },
             },
+            AccountingRow {
+                package_id: "other-package-id".to_owned(),
+                package_name: "other".to_owned(),
+                manifest_path: root.path().join("other/Cargo.toml"),
+                language: LanguageId::RUST,
+                engine: AccountingEngine::Rust,
+                precision: AccountingPrecision::ConfigurationAware,
+                counts: Counts {
+                    files: 1,
+                    lines: 2,
+                    code: 2,
+                    test: TestCount::Known(0),
+                    ..Counts::default()
+                },
+            },
         ];
 
         report.apply_rows(&rows).expect("apply mixed rows");
@@ -708,14 +738,20 @@ mod tests {
         assert!(table.contains("│         ┆ Rust       ┆"));
         assert!(!table.contains("mixed ("));
         assert!(table.contains(
-            "│ Total   ┆ All        ┆     2 ┆     7 ┆     7 ┆      0 ┆        1 ┆    5 ┆    1 │"
+            "│ Total   ┆ Rust       ┆     2 ┆     5 ┆     5 ┆      0 ┆        0 ┆    4 ┆    1 │"
+        ));
+        assert!(table.contains(
+            "│         ┆ TypeScript ┆     1 ┆     4 ┆     4 ┆      0 ┆        1 ┆    3 ┆  n/a │"
+        ));
+        assert!(table.contains(
+            "│         ┆ All        ┆     3 ┆     9 ┆     9 ┆      0 ┆        1 ┆    7 ┆  n/a │"
         ));
         assert!(
             table
                 .lines()
                 .filter(|line| line.ends_with(" n/a │"))
                 .count()
-                == 1
+                == 3
         );
     }
 

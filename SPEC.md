@@ -1049,13 +1049,18 @@ An Accountant that cannot determine test-only provenance MUST render `n/a` in
 its `Test` cell, right-aligned like a numeric value; it MUST NOT render zero.
 Only configuration-aware Rust rows MUST retain numeric `Test` values.
 
-The final row MUST be a `Total` row whose available numeric values are
-arithmetic sums of the preceding rows. Its `Package` cell MUST be `Total` and
-its `Language` cell MUST be `All`. If any preceding row has an unavailable
-`Test` value, the Total `Test` value MUST also be `n/a`; a report with no rows
-MUST retain a numeric zero Total `Test` value. Because the rows partition the
-Root Source Inventory, the Total `Files` and `Lines` values MUST equal the
-unique accounted-identity checks in Section 8.
+After the Scope/language rows, the table MUST contain a total section with one
+row for each language represented in the report and a final `All` row. Each
+language total MUST be the checked arithmetic sum of that language's rows
+across every Scope. The section's first `Package` cell MUST be `Total`; later
+total-section `Package` cells MUST be empty. The final row's `Language` cell
+MUST be `All`, and its values MUST be the checked arithmetic sums of every
+preceding Scope/language row. If any contributing row has an unavailable
+`Test` value, its language total and the `All` total MUST also be `n/a`; a
+report with no rows MUST retain a `Total`/`All` row with a numeric zero `Test`
+value. Because the rows partition the Root Source Inventory, the `All` row's
+`Files` and `Lines` values MUST equal the unique accounted-identity checks in
+Section 8.
 
 The terminal table MUST contain no ANSI escape sequences or raw terminal
 control characters, whether stdout is attached to a terminal or redirected.

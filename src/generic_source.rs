@@ -429,7 +429,7 @@ fn is_structural_directory(path: &Path, root: &Path) -> bool {
         && path.is_dir()
         && matches!(
             path.file_name().and_then(OsStr::to_str),
-            Some(".cargo-loc" | ".git" | ".hg" | ".svn")
+            Some(".cargo-sloc" | ".git" | ".hg" | ".svn")
         )
 }
 

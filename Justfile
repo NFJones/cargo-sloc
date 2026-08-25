@@ -9,7 +9,7 @@ build:
 build-release:
     cargo build --all-targets --all-features --release
 
-# Install or update cargo-loc from this checkout.
+# Install or update cargo-sloc from this checkout.
 install:
     cargo install --path . --force
 
@@ -43,7 +43,7 @@ bench *args:
 
 # Compile the benchmark and execute a single smoke-test iteration per case.
 bench-smoke:
-    CARGO_LOC_BENCH_SCENARIO_SAMPLES=1 cargo bench --bench pipeline -- --test
+    CARGO_SLOC_BENCH_SCENARIO_SAMPLES=1 cargo bench --bench pipeline -- --test
 
 # Run the complete local validation suite.
 ci: fmt-check check clippy test

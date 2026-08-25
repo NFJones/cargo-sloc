@@ -1,6 +1,6 @@
-# cargo-loc Specification
+# cargo-sloc Specification
 
-- [cargo-loc Specification](#cargo-loc-specification)
+- [cargo-sloc Specification](#cargo-sloc-specification)
   - [1. Status and Scope](#1-status-and-scope)
   - [2. Normative Language](#2-normative-language)
   - [3. Terminology](#3-terminology)
@@ -37,7 +37,7 @@
 
 ## 1. Status and Scope
 
-This document specifies `cargo-loc`, a Cargo external subcommand for reporting
+This document specifies `cargo-sloc`, a Cargo external subcommand for reporting
 lines of supported source beneath a selected directory. Cargo projects receive
 configuration-aware Rust analysis, while supported files outside Cargo package
 ownership remain visible through an explicit Root scope. This document defines
@@ -49,10 +49,10 @@ This is the first complete draft of the specification. It is expected to evolve
 as the implementation exposes additional requirements. Unless a section says
 otherwise, its requirements are normative.
 
-`cargo-loc` is distributed as an executable named `cargo-loc`. Cargo invokes
-such an executable as `cargo loc` when it is available on `PATH`.
+`cargo-sloc` is distributed as an executable named `cargo-sloc`. Cargo invokes
+such an executable as `cargo sloc` when it is available on `PATH`.
 
-Rust MUST use cargo-loc's configuration-aware Accountant when selected Cargo
+Rust MUST use cargo-sloc's configuration-aware Accountant when selected Cargo
 contexts are available. Other recognized languages MUST use the generic
 Accountant defined in Section 8. Files in unsupported languages MUST be
 ignored.
@@ -70,12 +70,12 @@ RFC 8174 when, and only when, they appear in all capitals.
 
 ## 3. Terminology
 
-cargo-loc:
+cargo-sloc:
 : The Cargo external subcommand and source-accounting system specified by this
   document.
 
 Root:
-: The directory from which cargo-loc discovers Cargo projects and supported
+: The directory from which cargo-sloc discovers Cargo projects and supported
   source files. It is supplied by the optional positional `PATH` argument and
   defaults to `.`.
 
@@ -83,7 +83,7 @@ Beneath the Root:
 : A path is beneath the Root when it is equal to the Root or is a descendant of
   the canonical Root after resolving the path to its canonical form. A textual
   `..` component or a symlink MUST NOT be allowed to make an out-of-Root path
-  appear in-Root. If a path cannot be canonicalized, cargo-loc MUST NOT treat
+  appear in-Root. If a path cannot be canonicalized, cargo-sloc MUST NOT treat
   its containment as established merely because its normalized textual form
   begins with the Root path.
 
@@ -131,7 +131,7 @@ Compilation Target:
 Build Configuration:
 : The Cargo feature selection, compilation target, package and target
   selection, test context, and other conditional-compilation inputs for which
-  cargo-loc accounts source.
+  cargo-sloc accounts source.
 
 Cfg Option Set:
 : The active Rust conditional-compilation options for one Build Configuration.
@@ -180,7 +180,7 @@ Line of Code (LOC):
 
 ## 4. System Model
 
-cargo-loc MUST perform these logical phases:
+cargo-sloc MUST perform these logical phases:
 
 1. discover Cargo projects and build one Root Source Inventory;
 2. query Cargo to resolve workspaces, packages, features, targets, and
@@ -196,17 +196,17 @@ cargo-loc MUST perform these logical phases:
 7. verify the inventory-to-contribution partition; and
 8. aggregate and render the report.
 
-cargo-loc MUST NOT invoke `cargo build`, compile a selected package, expand a
+cargo-sloc MUST NOT invoke `cargo build`, compile a selected package, expand a
 macro, or execute a build script during normal accounting. It MAY invoke
 non-compiling query commands such as `cargo metadata` and `rustc --print cfg`.
 It MUST NOT intentionally modify package manifests or source files. Cargo
 queries MAY perform the ordinary dependency-index, cache, and lockfile access
-required by the installed Cargo version; cargo-loc MUST NOT describe those
+required by the installed Cargo version; cargo-sloc MUST NOT describe those
 queries as side-effect-free.
 
 No single Cargo query is assumed to expose every phase above. In particular,
 the context-insensitive feature union in stable `cargo metadata` output is not
-sufficient evidence for a context-specific Build Configuration. cargo-loc MAY
+sufficient evidence for a context-specific Build Configuration. cargo-sloc MAY
 combine non-compiling Cargo queries with an implementation of Cargo's
 documented resolver semantics. If it cannot determine a feature or target
 context with the fidelity required by Sections 6 and 7, it MUST fail with a
@@ -234,27 +234,27 @@ expressions alone.
 
 ## 5. Invocation and Command-Line Interface
 
-The executable MUST be named `cargo-loc`. It MUST support direct invocation and
+The executable MUST be named `cargo-sloc`. It MUST support direct invocation and
 Cargo external-subcommand invocation:
 
 ```text
-cargo-loc [OPTIONS] [PATH]
-cargo loc [OPTIONS] [PATH]
+cargo-sloc [OPTIONS] [PATH]
+cargo sloc [OPTIONS] [PATH]
 ```
 
 Under Cargo external-subcommand invocation, Cargo passes the subcommand name as
-the executable's first argument, so the first argument is the literal `loc`.
-`cargo-loc` MUST consume that marker without changing the remaining command
-semantics. Consequently, the bare direct invocation `cargo-loc loc` is
-reserved; a Root directory named `loc` MUST be passed in another unambiguous
-form such as `cargo-loc ./loc`.
+the executable's first argument, so the first argument is the literal `sloc`.
+`cargo-sloc` MUST consume that marker without changing the remaining command
+semantics. Consequently, the bare direct invocation `cargo-sloc sloc` is
+reserved; a Root directory named `sloc` MUST be passed in another unambiguous
+form such as `cargo-sloc ./sloc`.
 
 `PATH` MUST be an optional positional directory and MUST default to `.`. A
 relative path MUST be resolved against the process working directory. The Root
 MUST exist, MUST be a directory, and MUST be canonicalizable. The canonical
 absolute Root MUST be used for containment, identity, and deduplication. An
 inaccessible, nonexistent, non-directory, or uncanonicalizable Root MUST be a
-command error rather than causing cargo-loc to use weaker textual containment.
+command error rather than causing cargo-sloc to use weaker textual containment.
 
 The command MUST support:
 
@@ -286,7 +286,7 @@ invalid combinations MUST be rejected.
 
 `--help` MUST describe that all eligible Packages, all features, all package
 targets, and supported Root-owned files are included by default. `--version`
-MUST print the cargo-loc version and exit successfully.
+MUST print the cargo-sloc version and exit successfully.
 
 The command SHOULD provide examples for counting the default Root, a different
 Root, a selected feature set, non-default features, and JSON output.
@@ -295,9 +295,9 @@ Root, a selected feature set, non-default features, and JSON output.
 
 ### 6.1 Project discovery
 
-cargo-loc MUST recursively discover Cargo manifests beneath the Root through
+cargo-sloc MUST recursively discover Cargo manifests beneath the Root through
 the shared Root Source Inventory traversal. The traversal MUST structurally
-exclude `.git`, `.hg`, `.svn`, and cargo-loc's `.cargo-loc` state directory. It
+exclude `.git`, `.hg`, `.svn`, and cargo-sloc's `.cargo-sloc` state directory. It
 MUST honor paths excluded by `.gitignore` and `.ignore` files located at or
 beneath the Root. Hidden files and directories MUST NOT otherwise be excluded
 merely because their names begin with a dot.
@@ -326,11 +326,11 @@ symlink encountered beneath the Root MAY identify an eligible file only when
 its canonical target remains beneath the Root. Out-of-Root targets MUST be
 skipped with a stable warning.
 
-For each candidate manifest, cargo-loc MUST use Cargo metadata to determine its
+For each candidate manifest, cargo-sloc MUST use Cargo metadata to determine its
 workspace root, workspace members, packages, and target source paths. A
 candidate manifest is one encountered by the traversal after the exclusions
 above have been applied. If Cargo cannot load such a manifest or resolve its
-Project metadata, cargo-loc MUST fail rather than silently omit a potentially
+Project metadata, cargo-sloc MUST fail rather than silently omit a potentially
 countable Project.
 
 Cargo queries for a Project MUST use that Project's workspace root, or
@@ -356,7 +356,7 @@ above MUST be selected. Package-selection options apply across the complete set
 of discovered Projects: `--workspace` MUST select every eligible workspace
 member in every Project, including the sole member of a standalone Project.
 
-If `-p` or `--package` is present, cargo-loc MUST apply Cargo package-spec
+If `-p` or `--package` is present, cargo-sloc MUST apply Cargo package-spec
 matching across the discovered Projects and select only matching packages. If
 `--workspace` is present, all workspace members whose manifest paths are
 beneath the Root MUST be selected; it MUST NOT expand accounting beyond the
@@ -390,7 +390,7 @@ For those Targets, the default MUST include every applicable Production and
 Test Context described in Section 7.3, including enabled test and benchmark
 harness contexts.
 
-The custom build-script Target is an explicit cargo-loc accounting root. This
+The custom build-script Target is an explicit cargo-sloc accounting root. This
 is an intentional extension of Cargo's documented `--all-targets` selector,
 whose selector equivalence does not list custom build scripts even though Cargo
 may compile them as supporting artifacts.
@@ -403,7 +403,7 @@ MUST fail with a diagnostic that identifies its missing required features.
 
 ### 6.3 Target inclusion
 
-cargo-loc MUST support Cargo's standard target-selection options:
+cargo-sloc MUST support Cargo's standard target-selection options:
 
 - `--lib`;
 - `--bin NAME` and `--bins`;
@@ -422,13 +422,13 @@ kinds. A named selector MUST fail if it matches no target among the selected
 Packages, following Cargo's applicable package-selection behavior. It MUST NOT
 fail merely because another selected Package has no target with that name.
 
-For cargo-loc, `--all-targets` MUST explicitly select the same complete target
-set as the cargo-loc default, including the custom build-script Target. Target
+For cargo-sloc, `--all-targets` MUST explicitly select the same complete target
+set as the cargo-sloc default, including the custom build-script Target. Target
 eligibility MUST be evaluated after Cargo feature resolution and before the
 selected contexts are constructed.
 
 Package-target selectors define accounting roots, not Cargo's complete
-dependency compilation graph. cargo-loc MUST NOT add a Package's library,
+dependency compilation graph. cargo-sloc MUST NOT add a Package's library,
 binary, or another Target solely because Cargo would compile it as a supporting
 artifact of a selected Target. Such a Target contributes source only when it is
 independently selected. Cargo-compatible target semantics in this section
@@ -470,16 +470,16 @@ described in Section 11.
 ### 7.1 Feature selection
 
 When none of `--features`, `--all-features`, or `--no-default-features` is
-present, cargo-loc MUST enable all features of every selected package. This
+present, cargo-sloc MUST enable all features of every selected package. This
 default intentionally differs from `cargo build` in order to report source for
 the all-features configuration by default. It MUST NOT be described as a union
 or maximum of the source active under every possible feature configuration;
 negative feature predicates can make source inactive when all features are
 enabled.
 
-An explicit `--all-features` MUST have the same effect as the cargo-loc default.
+An explicit `--all-features` MUST have the same effect as the cargo-sloc default.
 
-When `--features FEATURES` is supplied without `--all-features`, cargo-loc MUST
+When `--features FEATURES` is supplied without `--all-features`, cargo-sloc MUST
 use Cargo's normal feature resolution: default features are enabled unless
 `--no-default-features` is also supplied, the listed features are enabled, and
 their transitive feature closure is resolved by Cargo.
@@ -494,13 +494,13 @@ Cargo's accepted syntax and precedence. In particular, `--all-features` MAY be
 combined with `--no-default-features` or `--features`; the effective set still
 contains every feature exposed by the selected Packages.
 
-cargo-loc MUST NOT define an `--exclude-features` option. Users MUST express an
+cargo-sloc MUST NOT define an `--exclude-features` option. Users MUST express an
 excluded feature configuration through Cargo's `--no-default-features` and
 `--features` options. This avoids configurations that violate Cargo's additive
 feature model or transitive feature closure.
 
 Feature names qualified for workspace packages MUST use the syntax and
-semantics accepted by the installed Cargo version. cargo-loc MUST rely on Cargo
+semantics accepted by the installed Cargo version. cargo-sloc MUST rely on Cargo
 resolution rather than implementing a conflicting independent feature graph.
 Feature resolution MUST occur independently for each Project containing at
 least one selected Package. A Package's `cfg(feature = "...")` predicates MUST
@@ -508,9 +508,9 @@ be evaluated against the effective feature set for that Package in the
 applicable Cargo compilation context, not against a union of feature names from
 other Packages or Projects.
 
-cargo-loc MUST honor the Project's Cargo feature resolver. If Cargo resolves
+cargo-sloc MUST honor the Project's Cargo feature resolver. If Cargo resolves
 distinct feature sets for different compilation contexts of the same Package,
-cargo-loc MUST preserve and evaluate those contexts separately. It MUST NOT
+cargo-sloc MUST preserve and evaluate those contexts separately. It MUST NOT
 replace them with their feature-name union: doing so would produce incorrect
 results for predicates such as `cfg(not(feature = "..."))`. The line-accounting
 union and production-context-wins rule apply only after each such context has
@@ -530,7 +530,7 @@ an unrelated Project MUST NOT by itself make the invocation fail.
 
 ### 7.2 Compilation target cfgs
 
-For each Project containing at least one selected Package, cargo-loc MUST
+For each Project containing at least one selected Package, cargo-sloc MUST
 determine the effective Compilation Target set using Cargo's command-line and
 configuration precedence. The query MUST use the Project root as its working
 directory so Project-local Cargo configuration and toolchain selection apply.
@@ -549,7 +549,7 @@ MUST instead use that Project's host target predicates and MUST NOT be
 duplicated merely because multiple target-built Compilation Targets are
 selected.
 
-cargo-loc SHOULD obtain built-in target cfg values from the selected toolchain
+cargo-sloc SHOULD obtain built-in target cfg values from the selected toolchain
 using `rustc --print cfg`, passing the applicable compilation target and crate
 type when needed. It MUST NOT maintain a hard-coded target-predicate table as
 its sole source of truth. The probe and resulting context MUST account for
@@ -573,14 +573,14 @@ truth values according to the Rust Reference. The recognized-option universe
 in Section 7.4 controls diagnostics only; recognition MUST NOT make an inactive
 option true.
 
-cargo-loc does not model Cargo profile settings or arbitrary compiler flags in
+cargo-sloc does not model Cargo profile settings or arbitrary compiler flags in
 the baseline command. If detectable settings may alter predicates such as
-`debug_assertions`, `panic`, or `target_feature`, cargo-loc SHOULD warn that the
+`debug_assertions`, `panic`, or `target_feature`, cargo-sloc SHOULD warn that the
 result is not build-observed.
 
 ### 7.3 Context construction
 
-For every selected target, cargo-loc MUST construct each context needed to
+For every selected target, cargo-sloc MUST construct each context needed to
 classify source as production or test-only:
 
 - a normal library, procedural-macro, binary, example, or build-script
@@ -608,7 +608,7 @@ Contexts MUST be eligible for `Test`, as detailed in Section 10.
 ### 7.4 Custom cfgs
 
 The baseline command MUST NOT execute build scripts to discover custom cfg
-values. cargo-loc MUST distinguish the active cfg set from the universe of cfg
+values. cargo-sloc MUST distinguish the active cfg set from the universe of cfg
 names and values recognized by the selected Rust toolchain. A recognized
 built-in predicate that is not in the active set, such as
 `target_os = "windows"` on a Linux target, MUST evaluate to false without an
@@ -621,9 +621,9 @@ predicate MUST behave the same way.
 
 A cfg name or value outside that recognized universe MUST be treated as unset,
 matching Rust's behavior for a cfg option that was not provided in the modeled
-configuration. cargo-loc SHOULD warn that a build script, compiler flag, or
+configuration. cargo-sloc SHOULD warn that a build script, compiler flag, or
 another unmodeled input may change the count. The warning SHOULD name the
-predicate and affected Package. cargo-loc MUST NOT describe such a result as
+predicate and affected Package. cargo-sloc MUST NOT describe such a result as
 build-observed or compiler-exact.
 
 The implementation MAY derive the recognized universe from toolchain queries,
@@ -693,7 +693,7 @@ but default operation SHOULD remain quiet.
 
 Generic-language discovery MUST consume the shared Root Source Inventory rather
 than delegating filesystem traversal to a language engine. Apart from the VCS
-administration and `.cargo-loc` state directories specified in Section 6.1,
+administration and `.cargo-sloc` state directories specified in Section 6.1,
 non-ignored supported files MUST NOT be hard-coded out merely because they are
 in `target`, `vendor`, generated-output directories, or have lockfile-like
 names. Projects that do not want such source counted SHOULD exclude it through
@@ -751,10 +751,10 @@ value. Their `Blanks`, `Comments`, and `Code` values follow Tokei's mutually
 exclusive lexical categories rather than Rust's overlapping comment measure.
 Embedded-language statistics MUST be summarized into the host-language row so
 each physical file contributes one row and its physical lines are not counted
-twice. The pinned catalog and cargo-loc adapter behavior MUST each have an
+twice. The pinned catalog and cargo-sloc adapter behavior MUST each have an
 explicit compatibility version.
 
-Before aggregation, cargo-loc MUST reject an identity assigned to multiple
+Before aggregation, cargo-sloc MUST reject an identity assigned to multiple
 Scopes or routes, a contribution absent from the inventory, an owner mismatch,
 duplicate configured/unconfigured/Tokei contributions, or a recognized
 eligible record with no final disposition. The sum of report `Files` MUST equal
@@ -776,12 +776,12 @@ Examples of the required partition include:
   selected-Package rows.
 
 Unreadable selected source, invalid source paths, and Rust syntax that prevents
-required cfg or module analysis MUST be diagnosed as errors. cargo-loc MUST NOT
+required cfg or module analysis MUST be diagnosed as errors. cargo-sloc MUST NOT
 silently substitute an unfiltered text count when Rust-aware analysis fails.
 
 ## 9. Conditional-Compilation Semantics
 
-cargo-loc MUST evaluate Rust conditional-compilation attributes according to
+cargo-sloc MUST evaluate Rust conditional-compilation attributes according to
 the Rust Reference, including:
 
 - option-name predicates such as `unix` and `test`;
@@ -844,7 +844,7 @@ the source spans governed by false attributes. It MUST preserve line-boundary
 information while constructing the active source projection.
 
 `cfg!(...)` is an expression that evaluates to a compile-time boolean; it does
-not remove its enclosing syntax. cargo-loc MUST count the invocation and every
+not remove its enclosing syntax. cargo-sloc MUST count the invocation and every
 otherwise active source branch around it. It MUST NOT infer that an `if
 cfg!(...)` control-flow branch is absent.
 
@@ -857,7 +857,7 @@ Tokens inside a macro definition body or invocation input MUST remain counted
 as part of that active macro source. Attribute-like tokens inside such a token
 tree MUST NOT be evaluated as conditional attributes unless they are themselves
 in a compiler-recognized attribute position outside the unexpanded token tree.
-This rule prevents cargo-loc from predicting how a macro will interpret its
+This rule prevents cargo-sloc from predicting how a macro will interpret its
 input while preserving cfg filtering on the macro item or invocation itself.
 
 The Accountant MUST parse cfg predicates structurally. It MUST NOT use substring
@@ -1027,7 +1027,7 @@ There MUST be one row for each resolved Scope and supported language pair with
 at least one accounted file. The `Package` column identifies the Scope-level
 aggregation row; it does not identify an individual Rust crate or Cargo Target.
 A Package Scope MUST normally use the Cargo package name. If Package names
-collide within the invocation, cargo-loc MUST add a stable Root-relative path or
+collide within the invocation, cargo-sloc MUST add a stable Root-relative path or
 equivalent Package qualifier so displayed labels are unique. The Root Scope
 MUST use the stable label `<root>`. Only the first row for a Scope MUST print
 the Scope label; subsequent language rows for the same Scope MUST leave the
@@ -1167,7 +1167,7 @@ configuration object MAY additionally distinguish targets requested on the
 command line from targets obtained through Cargo configuration.
 
 `all_features` and `no_default_features` MUST be booleans describing the
-normalized feature mode; the implicit cargo-loc default MUST set
+normalized feature mode; the implicit cargo-sloc default MUST set
 `all_features` to `true`. `features` MUST be a deterministically ordered,
 duplicate-free array of requested feature names, flattening repeated options
 and comma- or space-separated lists while preserving Cargo package
@@ -1205,7 +1205,7 @@ ordered deterministically.
 
 ### 11.3 Empty reports
 
-If no selected Package or supported source file contributes a row, cargo-loc
+If no selected Package or supported source file contributes a row, cargo-sloc
 MUST exit successfully and report zero totals. A Root with no Cargo project is
 not empty when its Root Source Inventory contains supported included files.
 
@@ -1220,14 +1220,14 @@ stderr and MUST NOT corrupt the terminal table or JSON document on stdout.
 Successful JSON warnings MUST appear in the JSON `warnings` field and MAY also
 be shown on stderr when stderr is a terminal.
 
-If accounting or serialization fails, cargo-loc MUST NOT write a partial report
+If accounting or serialization fails, cargo-sloc MUST NOT write a partial report
 that could be mistaken for a successful complete result. It SHOULD buffer the
 report until successful completion or otherwise ensure that stdout is empty on
 failure. Diagnostics describing the failure belong on stderr.
 
 ## 12. Diagnostics and Exit Status
 
-cargo-loc MUST return exit status zero when accounting and report rendering
+cargo-sloc MUST return exit status zero when accounting and report rendering
 succeed, including when the result is empty.
 
 It MUST return a nonzero exit status for at least:
@@ -1352,13 +1352,13 @@ does not require an increment when existing consumers can ignore it.
 
 Results MAY differ across Cargo or Rust toolchain versions when those tools
 change manifest resolution, target discovery, accepted syntax, cfg values, or
-language semantics. cargo-loc SHOULD report its own version and SHOULD include
+language semantics. cargo-sloc SHOULD report its own version and SHOULD include
 relevant toolchain identity in verbose or machine-readable metadata in a future
 compatible extension.
 
-Each cargo-loc release MUST document its minimum supported Cargo and Rust
+Each cargo-sloc release MUST document its minimum supported Cargo and Rust
 toolchain versions. If a selected Project requires an unavailable query,
-configuration behavior, or language capability, cargo-loc MUST fail with a
+configuration behavior, or language capability, cargo-sloc MUST fail with a
 diagnostic identifying the unsupported toolchain or capability rather than
 silently applying semantics from another version.
 

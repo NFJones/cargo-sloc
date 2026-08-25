@@ -74,12 +74,12 @@ struct Limits {
 impl Limits {
     fn from_environment() -> Self {
         Self {
-            timeout: std::env::var("CARGO_LOC_SUBPROCESS_TIMEOUT_MS")
+            timeout: std::env::var("CARGO_SLOC_SUBPROCESS_TIMEOUT_MS")
                 .ok()
                 .and_then(|value| value.parse().ok())
                 .map(Duration::from_millis)
                 .unwrap_or(DEFAULT_TIMEOUT),
-            stream_bytes: std::env::var("CARGO_LOC_SUBPROCESS_OUTPUT_LIMIT")
+            stream_bytes: std::env::var("CARGO_SLOC_SUBPROCESS_OUTPUT_LIMIT")
                 .ok()
                 .and_then(|value| value.parse().ok())
                 .unwrap_or(DEFAULT_STREAM_LIMIT),

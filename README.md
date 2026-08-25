@@ -1,15 +1,15 @@
 <div align="center">
 <h1 align="center">Cargo LoC</h1>
 <p align="center">
-  <a href="https://github.com/NFJones/cargo-loc/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/NFJones/cargo-loc?style=flat-square"></a>
-  <a href="https://github.com/NFJones/cargo-loc/forks"><img alt="GitHub forks" src="https://img.shields.io/github/forks/NFJones/cargo-loc?style=flat-square"></a>
-  <a href="https://github.com/NFJones/cargo-loc/issues"><img alt="GitHub issues" src="https://img.shields.io/github/issues/NFJones/cargo-loc?style=flat-square"></a>
-  <a href="https://github.com/NFJones/cargo-loc/actions"><img alt="Build status" src="https://img.shields.io/github/actions/workflow/status/NFJones/cargo-loc/ci.yml?style=flat-square"></a>
+  <a href="https://github.com/NFJones/cargo-sloc/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/NFJones/cargo-sloc?style=flat-square"></a>
+  <a href="https://github.com/NFJones/cargo-sloc/forks"><img alt="GitHub forks" src="https://img.shields.io/github/forks/NFJones/cargo-sloc?style=flat-square"></a>
+  <a href="https://github.com/NFJones/cargo-sloc/issues"><img alt="GitHub issues" src="https://img.shields.io/github/issues/NFJones/cargo-sloc?style=flat-square"></a>
+  <a href="https://github.com/NFJones/cargo-sloc/actions"><img alt="Build status" src="https://img.shields.io/github/actions/workflow/status/NFJones/cargo-sloc/ci.yml?style=flat-square"></a>
 </p>
 </div>
 </div>
 
-`cargo-loc` is a source line counter for supported files beneath a directory.
+`cargo-sloc` is a source line counter for supported files beneath a directory.
 It evaluates Cargo feature selections and Rust conditional-compilation
 attributes for reachable package Rust, while retaining other recognized files
 under their package or an explicit Root scope. It answers questions such as:
@@ -18,22 +18,22 @@ under their package or an explicit Root scope. It answers questions such as:
 - How much source is active with a particular feature set?
 - How do counts differ by Cargo package in a workspace?
 
-The installed executable is named `cargo-loc`, so Cargo invokes it as
-`cargo loc`.
+The installed executable is named `cargo-sloc`, so Cargo invokes it as
+`cargo sloc`.
 
 ## Installation
 
 Install a published release with:
 
 ```sh
-cargo install cargo-loc
+cargo install cargo-sloc
 ```
 
 Install the current checkout with:
 
 ```sh
 just install
-cargo loc --version
+cargo sloc --version
 ```
 
 Rust and Cargo 1.95 or newer are required.
@@ -44,54 +44,54 @@ Count all supported, non-ignored files plus every eligible Cargo package,
 feature, and package target beneath the current directory:
 
 ```sh
-cargo loc
+cargo sloc
 ```
 
 Count another Root, including directories with no Cargo manifest:
 
 ```sh
-cargo loc ../workspace
+cargo sloc ../workspace
 ```
 
 Select a Cargo feature configuration:
 
 ```sh
-cargo loc --no-default-features --features serde,simd
+cargo sloc --no-default-features --features serde,simd
 ```
 
 Select or exclude package targets and contexts:
 
 ```sh
-cargo loc --lib --bins --exclude-target test --exclude-target bench
+cargo sloc --lib --bins --exclude-target test --exclude-target bench
 ```
 
 Exclude files that resolve to the Root scope while retaining selected Package
 rows:
 
 ```sh
-cargo loc --root-files exclude
+cargo sloc --root-files exclude
 ```
 
 Select a compilation target or emit schema-version 3 JSON:
 
 ```sh
-cargo loc --target wasm32-wasip1
-cargo loc --json
+cargo sloc --target wasm32-wasip1
+cargo sloc --json
 ```
 
 Package, feature, and standard target selectors follow Cargo syntax. Run
-`cargo loc --help` for the complete option list.
+`cargo sloc --help` for the complete option list.
 
 ## What is counted
 
-`cargo-loc` counts supported, non-ignored source files below the requested
+`cargo-sloc` counts supported, non-ignored source files below the requested
 Root. It reports Cargo-owned files by package and files without a unique
 selected-package owner as `<root>`. Rust reached from selected Cargo targets is
 analyzed with Cargo features and Rust `cfg` attributes. Other Rust files and
 other recognized languages use lexical accounting, so they do not claim Cargo
 target, feature, cfg, import, or test provenance filtering.
 
-The supported-language catalog is based on Tokei; Rust uses cargo-loc's
+The supported-language catalog is based on Tokei; Rust uses cargo-sloc's
 configuration-aware accountant. See [SPEC.md](SPEC.md) for the full language,
 ignore, ownership, and analysis rules.
 
@@ -103,7 +103,7 @@ The default report is a deterministic terminal table:
 ╭───────────┬──────────┬───────┬───────┬───────┬────────┬──────────┬──────┬──────╮
 │ Package   ┆ Language ┆ Files ┆ Total ┆ Lines ┆ Blanks ┆ Comments ┆ Code ┆ Test │
 ╞═══════════╪══════════╪═══════╪═══════╪═══════╪════════╪══════════╪══════╪══════╡
-│ cargo-loc ┆ Rust     ┆    12 ┆  1842 ┆  1842 ┆    307 ┆      214 ┆ 1321 ┆    0 │
+│ cargo-sloc ┆ Rust     ┆    12 ┆  1842 ┆  1842 ┆    307 ┆      214 ┆ 1321 ┆    0 │
 │ Total     ┆ All      ┆    12 ┆  1842 ┆  1842 ┆    307 ┆      214 ┆ 1321 ┆    0 │
 ╰───────────┴──────────┴───────┴───────┴───────┴────────┴──────────┴──────┴──────╯
 ```

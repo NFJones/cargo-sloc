@@ -6,12 +6,12 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use cargo_loc::cli::ParseOutcome;
-use cargo_loc::configuration::{ConfiguredInventory, resolve};
-use cargo_loc::discovery::discover;
-use cargo_loc::error::AppError;
-use cargo_loc::model::{ContextKind, Selection};
-use cargo_loc::rust_source::{SourceInventory, discover as discover_sources};
+use cargo_sloc::cli::ParseOutcome;
+use cargo_sloc::configuration::{ConfiguredInventory, resolve};
+use cargo_sloc::discovery::discover;
+use cargo_sloc::error::AppError;
+use cargo_sloc::model::{ContextKind, Selection};
+use cargo_sloc::rust_source::{SourceInventory, discover as discover_sources};
 use tempfile::TempDir;
 
 #[test]
@@ -268,10 +268,10 @@ fn missing_and_ambiguous_active_modules_are_errors() {
 #[test]
 fn parse_failures_leave_command_stdout_empty() {
     let root = simple_package("broken", "pub fn broken(\n");
-    let output = Command::new(env!("CARGO_BIN_EXE_cargo-loc"))
+    let output = Command::new(env!("CARGO_BIN_EXE_cargo-sloc"))
         .arg(root.path())
         .output()
-        .expect("run cargo-loc");
+        .expect("run cargo-sloc");
 
     assert!(!output.status.success());
     assert!(output.stdout.is_empty());
@@ -287,10 +287,10 @@ fn malformed_cfg_diagnostics_name_the_real_source_file() {
         ("malformed-item-cfg", "#[cfg(not())]\npub fn item() {}\n"),
     ] {
         let root = simple_package(name, source);
-        let output = Command::new(env!("CARGO_BIN_EXE_cargo-loc"))
+        let output = Command::new(env!("CARGO_BIN_EXE_cargo-sloc"))
             .arg(root.path())
             .output()
-            .expect("run cargo-loc");
+            .expect("run cargo-sloc");
 
         assert!(!output.status.success());
         assert!(output.stdout.is_empty());
@@ -444,7 +444,7 @@ fn source_inventory_result<const N: usize>(
 fn selection<const N: usize>(root: &Path, arguments: [&str; N]) -> Result<Selection, AppError> {
     let mut arguments: Vec<OsString> = arguments.iter().map(OsString::from).collect();
     arguments.push(root.as_os_str().to_owned());
-    match cargo_loc::cli::parse(arguments, Path::new(env!("CARGO_MANIFEST_DIR")))? {
+    match cargo_sloc::cli::parse(arguments, Path::new(env!("CARGO_MANIFEST_DIR")))? {
         ParseOutcome::Selection(selection) => Ok(selection),
         ParseOutcome::EarlyExit { .. } => panic!("unexpected early CLI exit"),
     }

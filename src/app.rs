@@ -225,7 +225,7 @@ pub(crate) fn execute_prepared_with_cache(
 pub(crate) fn operational_error(error: AppError) -> ProcessOutput {
     ProcessOutput {
         stdout: Vec::new(),
-        stderr: format!("cargo-loc: {error}\n").into_bytes(),
+        stderr: format!("cargo-sloc: {error}\n").into_bytes(),
         exit_code: 1,
     }
 }

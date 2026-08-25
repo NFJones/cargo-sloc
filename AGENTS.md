@@ -2,8 +2,8 @@
 
 ## Project Structure and Ownership
 
-`cargo-loc` is a Rust 2024 Cargo subcommand. The installed `cargo-loc` binary
-is invoked by Cargo as `cargo loc`. User-visible behavior MUST remain aligned
+`cargo-sloc` is a Rust 2024 Cargo subcommand. The installed `cargo-sloc` binary
+is invoked by Cargo as `cargo sloc`. User-visible behavior MUST remain aligned
 with `SPEC.md`; when implementation and specification disagree, either correct
 the implementation or update the specification deliberately in the same
 change.
@@ -45,7 +45,7 @@ by `SPEC.md`. Prefer cohesive subsystem modules over a large `lib.rs` or
 - `just test`: run all tests quietly without stopping after the first failing
   test binary.
 - `just ci`: run formatting, checking, linting, and tests.
-- `just install`: install or update the local `cargo-loc` executable.
+- `just install`: install or update the local `cargo-sloc` executable.
 - `just package`: verify that the crate can be packaged for publication.
 - `just clean`: remove Cargo build artifacts.
 - `just help`: list available recipes.

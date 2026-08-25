@@ -1,4 +1,4 @@
-//! Phase and end-to-end benchmarks for representative cargo-loc workloads.
+//! Phase and end-to-end benchmarks for representative cargo-sloc workloads.
 
 mod support;
 
@@ -9,10 +9,10 @@ use std::process::{Command, Output};
 use std::time::{Duration, Instant};
 use std::{cell::Cell, env};
 
-use cargo_loc::ResidentSession;
-use cargo_loc::cli::ParseOutcome;
-use cargo_loc::metrics::PipelineMetrics;
-use cargo_loc::report::Report;
+use cargo_sloc::ResidentSession;
+use cargo_sloc::cli::ParseOutcome;
+use cargo_sloc::metrics::PipelineMetrics;
+use cargo_sloc::report::Report;
 use criterion::{BatchSize, BenchmarkId, Criterion};
 use support::{
     DivergentContextWorkspace, MixedLanguageWorkspace, SharedTargetWorkspace, SyntheticWorkspace,
@@ -36,18 +36,20 @@ fn pipeline_benchmarks(criterion: &mut Criterion) {
     let primed = resident.refresh();
     assert_eq!(primed.exit_code, 0, "prime resident benchmark session");
     let selection =
-        match cargo_loc::cli::parse([fixture.root().as_os_str().to_owned()], fixture.root())
+        match cargo_sloc::cli::parse([fixture.root().as_os_str().to_owned()], fixture.root())
             .expect("parse benchmark request")
         {
             ParseOutcome::Selection(selection) => selection,
             ParseOutcome::EarlyExit { .. } => panic!("unexpected benchmark CLI exit"),
         };
-    let inventory = cargo_loc::discovery::discover(&selection).expect("discover benchmark fixture");
-    let configured = cargo_loc::configuration::resolve(&selection, &inventory)
+    let inventory =
+        cargo_sloc::discovery::discover(&selection).expect("discover benchmark fixture");
+    let configured = cargo_sloc::configuration::resolve(&selection, &inventory)
         .expect("configure benchmark fixture");
-    let sources = cargo_loc::rust_source::discover(&configured).expect("discover benchmark source");
+    let sources =
+        cargo_sloc::rust_source::discover(&configured).expect("discover benchmark source");
     let accounting =
-        cargo_loc::rust_accounting::account(&sources).expect("account benchmark source");
+        cargo_sloc::rust_accounting::account(&sources).expect("account benchmark source");
 
     let mut group = criterion.benchmark_group("pipeline");
     group.sample_size(10);
@@ -56,25 +58,25 @@ fn pipeline_benchmarks(criterion: &mut Criterion) {
 
     group.bench_function("project_discovery", |bencher| {
         bencher.iter(|| {
-            cargo_loc::discovery::discover(black_box(&selection))
+            cargo_sloc::discovery::discover(black_box(&selection))
                 .expect("benchmark project discovery")
         });
     });
     group.bench_function("configuration", |bencher| {
         bencher.iter(|| {
-            cargo_loc::configuration::resolve(black_box(&selection), black_box(&inventory))
+            cargo_sloc::configuration::resolve(black_box(&selection), black_box(&inventory))
                 .expect("benchmark configuration")
         });
     });
     group.bench_function("source_discovery", |bencher| {
         bencher.iter(|| {
-            cargo_loc::rust_source::discover(black_box(&configured))
+            cargo_sloc::rust_source::discover(black_box(&configured))
                 .expect("benchmark source discovery")
         });
     });
     group.bench_function("cfg_and_line_accounting", |bencher| {
         bencher.iter(|| {
-            cargo_loc::rust_accounting::account(black_box(&sources)).expect("benchmark accounting")
+            cargo_sloc::rust_accounting::account(black_box(&sources)).expect("benchmark accounting")
         });
     });
     group.bench_function("aggregation_and_json", |bencher| {
@@ -100,7 +102,7 @@ fn pipeline_benchmarks(criterion: &mut Criterion) {
         bencher.iter_batched(
             || SyntheticWorkspace::new(4, 8, 50),
             |cold_fixture| {
-                let measured = cargo_loc::run_with_metrics([
+                let measured = cargo_sloc::run_with_metrics([
                     OsString::from("--json"),
                     cold_fixture.root().as_os_str().to_owned(),
                 ]);
@@ -139,7 +141,7 @@ fn pipeline_benchmarks(criterion: &mut Criterion) {
     });
     group.bench_function("high_context_shared_source", |bencher| {
         bencher.iter(|| {
-            let measured = cargo_loc::run_with_metrics([
+            let measured = cargo_sloc::run_with_metrics([
                 OsString::from("--json"),
                 shared_targets.root().as_os_str().to_owned(),
             ]);
@@ -154,7 +156,7 @@ fn pipeline_benchmarks(criterion: &mut Criterion) {
     });
     group.bench_function("divergent_semantic_contexts", |bencher| {
         bencher.iter(|| {
-            let measured = cargo_loc::run_with_metrics([
+            let measured = cargo_sloc::run_with_metrics([
                 OsString::from("--json"),
                 divergent_contexts.root().as_os_str().to_owned(),
             ]);
@@ -178,7 +180,7 @@ fn pipeline_benchmarks(criterion: &mut Criterion) {
         bencher.iter_batched(
             || MixedLanguageWorkspace::new(64, 8, 200),
             |fixture| {
-                let measured = cargo_loc::run_with_metrics([
+                let measured = cargo_sloc::run_with_metrics([
                     OsString::from("--json"),
                     fixture.root().as_os_str().to_owned(),
                 ]);
@@ -202,7 +204,7 @@ fn pipeline_benchmarks(criterion: &mut Criterion) {
         });
     });
 
-    let binary = cargo_loc_binary();
+    let binary = cargo_sloc_binary();
     for (size, dimensions) in [
         ("small", (1, 4, 20)),
         ("medium", (4, 8, 50)),
@@ -290,7 +292,7 @@ fn main() {
 }
 
 fn report_scenario_metrics() {
-    let sample_count = env::var("CARGO_LOC_BENCH_SCENARIO_SAMPLES")
+    let sample_count = env::var("CARGO_SLOC_BENCH_SCENARIO_SAMPLES")
         .ok()
         .and_then(|value| value.parse::<usize>().ok())
         .filter(|samples| *samples > 0)
@@ -330,7 +332,7 @@ fn report_scenario_metrics() {
             mixed_fixture.root().as_os_str().to_owned(),
         ]
     };
-    let mixed_cold = cargo_loc::run_with_metrics(mixed_arguments());
+    let mixed_cold = cargo_sloc::run_with_metrics(mixed_arguments());
     assert_eq!(mixed_cold.output.exit_code, 0);
     print_scenario("mixed_language_cold", &[mixed_cold.metrics]);
 
@@ -360,7 +362,7 @@ fn resident(fixture: &SyntheticWorkspace) -> ResidentSession {
 }
 
 fn measure(fixture: &SyntheticWorkspace) -> PipelineMetrics {
-    let measured = cargo_loc::run_with_metrics([
+    let measured = cargo_sloc::run_with_metrics([
         OsString::from("--json"),
         fixture.root().as_os_str().to_owned(),
     ]);
@@ -429,7 +431,7 @@ fn print_scenario(name: &str, runs: &[PipelineMetrics]) {
         "peak_rss_bytes": peak_rss_bytes,
     });
     println!(
-        "cargo-loc-scenario {}",
+        "cargo-sloc-scenario {}",
         serde_json::to_string(&summary).expect("serialize scenario")
     );
 }
@@ -466,8 +468,8 @@ struct ExternalSample {
     output: Output,
 }
 
-fn cargo_loc_binary() -> PathBuf {
-    if let Some(path) = env::var_os("CARGO_LOC_BENCH_BINARY") {
+fn cargo_sloc_binary() -> PathBuf {
+    if let Some(path) = env::var_os("CARGO_SLOC_BENCH_BINARY") {
         return PathBuf::from(path);
     }
     let benchmark = env::current_exe().expect("resolve benchmark executable");
@@ -475,20 +477,20 @@ fn cargo_loc_binary() -> PathBuf {
         .parent()
         .and_then(Path::parent)
         .expect("benchmark executable is beneath the Cargo profile directory");
-    profile.join(format!("cargo-loc{}", env::consts::EXE_SUFFIX))
+    profile.join(format!("cargo-sloc{}", env::consts::EXE_SUFFIX))
 }
 
 fn run_external(invocation: ExternalInvocation<'_>, root: &Path) -> ExternalSample {
     let mut command = match invocation {
         ExternalInvocation::Direct(binary) => {
             let mut command = Command::new(binary);
-            command.arg("loc");
+            command.arg("sloc");
             command
         }
         ExternalInvocation::Cargo(binary) => {
             let mut command = Command::new("cargo");
-            command.arg("loc");
-            let binary_directory = binary.parent().expect("cargo-loc binary directory");
+            command.arg("sloc");
+            let binary_directory = binary.parent().expect("cargo-sloc binary directory");
             let mut paths = vec![binary_directory.to_path_buf()];
             if let Some(path) = env::var_os("PATH") {
                 paths.extend(env::split_paths(&path));
@@ -504,9 +506,9 @@ fn run_external(invocation: ExternalInvocation<'_>, root: &Path) -> ExternalSamp
         .arg("--json")
         .arg(root)
         .current_dir(root)
-        .env("CARGO_LOC_CACHE_DIR", root.join(".cargo-loc"));
+        .env("CARGO_SLOC_CACHE_DIR", root.join(".cargo-sloc"));
     let started = Instant::now();
-    let output = command.output().expect("run external cargo-loc benchmark");
+    let output = command.output().expect("run external cargo-sloc benchmark");
     ExternalSample {
         elapsed: started.elapsed(),
         output,
@@ -516,7 +518,7 @@ fn run_external(invocation: ExternalInvocation<'_>, root: &Path) -> ExternalSamp
 fn assert_external_success(output: &Output) {
     assert!(
         output.status.success(),
-        "external cargo-loc failed with {}\nstdout:\n{}\nstderr:\n{}",
+        "external cargo-sloc failed with {}\nstdout:\n{}\nstderr:\n{}",
         output.status,
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
@@ -531,15 +533,15 @@ fn assert_same_output(actual: &Output, expected: &Output) {
 }
 
 fn report_external_scenario_metrics() {
-    let sample_count = env::var("CARGO_LOC_BENCH_SCENARIO_SAMPLES")
+    let sample_count = env::var("CARGO_SLOC_BENCH_SCENARIO_SAMPLES")
         .ok()
         .and_then(|value| value.parse::<usize>().ok())
         .filter(|samples| *samples > 0)
         .unwrap_or(DEFAULT_SCENARIO_SAMPLES);
-    let binary = cargo_loc_binary();
+    let binary = cargo_sloc_binary();
     assert!(
         binary.is_file(),
-        "release cargo-loc binary not found at {}; set CARGO_LOC_BENCH_BINARY to override",
+        "release cargo-sloc binary not found at {}; set CARGO_SLOC_BENCH_BINARY to override",
         binary.display()
     );
 
@@ -647,10 +649,10 @@ fn print_external_scenario(
         },
         "filesystem_page_state": "os-controlled",
         "peak_rss_bytes": null,
-        "pipeline_metrics": "reported by cargo-loc-scenario records",
+        "pipeline_metrics": "reported by cargo-sloc-scenario records",
     });
     println!(
-        "cargo-loc-external-scenario {}",
+        "cargo-sloc-external-scenario {}",
         serde_json::to_string(&summary).expect("serialize external scenario")
     );
 }

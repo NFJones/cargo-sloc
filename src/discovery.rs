@@ -70,7 +70,7 @@ pub struct PackageInventory {
 pub struct TargetInventory {
     /// Cargo target name.
     pub name: String,
-    /// Canonical cargo-loc target kind.
+    /// Canonical cargo-sloc target kind.
     pub kind: TargetKind,
     /// Absolute source root path.
     pub source_path: PathBuf,
@@ -97,7 +97,7 @@ pub enum TargetContext {
     Bench,
 }
 
-/// Target kinds exposed by cargo-loc selectors.
+/// Target kinds exposed by cargo-sloc selectors.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 pub enum TargetKind {
     /// Library-like target, including procedural macros.
@@ -254,7 +254,7 @@ fn candidate_manifests(root: &Path) -> Result<Vec<PathBuf>, AppError> {
             }
             !matches!(
                 entry.file_name().to_str(),
-                Some("target" | ".cargo-loc" | ".git" | ".hg" | ".svn")
+                Some("target" | ".cargo-sloc" | ".git" | ".hg" | ".svn")
             )
         });
 

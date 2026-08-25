@@ -14,7 +14,7 @@ pub struct LanguageId {
 }
 
 impl LanguageId {
-    /// Rust source handled by cargo-loc's configuration-aware Accountant.
+    /// Rust source handled by cargo-sloc's configuration-aware Accountant.
     pub const RUST: Self = Self::new("rust", "Rust");
 
     /// Rust source without a selected Cargo build context.
@@ -45,7 +45,7 @@ impl fmt::Display for LanguageId {
 /// The implementation used to produce an accounting row.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum AccountingEngine {
-    /// cargo-loc's Rust syntax and cfg analysis.
+    /// cargo-sloc's Rust syntax and cfg analysis.
     Rust,
     /// Tokei's generic lexical scanner.
     Tokei,

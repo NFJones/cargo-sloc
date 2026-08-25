@@ -4,13 +4,13 @@ use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use cargo_loc::cli::ParseOutcome;
-use cargo_loc::configuration::resolve;
-use cargo_loc::discovery::discover;
-use cargo_loc::error::AppError;
-use cargo_loc::model::{Counts, Selection, TestCount};
-use cargo_loc::rust_accounting::{AccountingInventory, account};
-use cargo_loc::rust_source::discover as discover_sources;
+use cargo_sloc::cli::ParseOutcome;
+use cargo_sloc::configuration::resolve;
+use cargo_sloc::discovery::discover;
+use cargo_sloc::error::AppError;
+use cargo_sloc::model::{Counts, Selection, TestCount};
+use cargo_sloc::rust_accounting::{AccountingInventory, account};
+use cargo_sloc::rust_source::discover as discover_sources;
 use tempfile::TempDir;
 
 #[test]
@@ -234,7 +234,7 @@ fn accounting<const N: usize>(
 fn selection<const N: usize>(root: &Path, arguments: [&str; N]) -> Result<Selection, AppError> {
     let mut arguments: Vec<OsString> = arguments.iter().map(OsString::from).collect();
     arguments.push(root.as_os_str().to_owned());
-    match cargo_loc::cli::parse(arguments, Path::new(env!("CARGO_MANIFEST_DIR")))? {
+    match cargo_sloc::cli::parse(arguments, Path::new(env!("CARGO_MANIFEST_DIR")))? {
         ParseOutcome::Selection(selection) => Ok(selection),
         ParseOutcome::EarlyExit { .. } => panic!("unexpected early CLI exit"),
     }

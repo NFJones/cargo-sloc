@@ -22,7 +22,7 @@ pub struct PipelineMetrics {
     pub phases: PhaseMetrics,
     /// External semantic query counts.
     pub queries: QueryMetrics,
-    /// Total bounded subprocesses started by cargo-loc.
+    /// Total bounded subprocesses started by cargo-sloc.
     pub subprocesses: u64,
     /// In-process cache outcomes.
     pub caches: CacheMetrics,

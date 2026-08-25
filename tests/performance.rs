@@ -4,8 +4,8 @@ use std::ffi::OsString;
 use std::fs;
 use std::path::PathBuf;
 
-use cargo_loc::cli::ParseOutcome;
-use cargo_loc::report::Report;
+use cargo_sloc::cli::ParseOutcome;
+use cargo_sloc::report::Report;
 use tempfile::TempDir;
 
 #[test]
@@ -13,9 +13,9 @@ fn repeated_synthetic_workspace_reports_are_byte_identical() {
     let root = synthetic_workspace();
     let arguments = || [OsString::from("--json"), root.path().as_os_str().to_owned()];
 
-    let first = cargo_loc::run(arguments());
-    let second = cargo_loc::run(arguments());
-    let third = cargo_loc::run(arguments());
+    let first = cargo_sloc::run(arguments());
+    let second = cargo_sloc::run(arguments());
+    let third = cargo_sloc::run(arguments());
     assert_eq!(first.exit_code, 0, "first run failed");
     assert_eq!(second.exit_code, 0, "second run failed");
     assert_eq!(third.exit_code, 0, "third run failed");
@@ -36,8 +36,8 @@ fn measured_runs_preserve_output_and_expose_pipeline_work() {
     let root = synthetic_workspace();
     let arguments = || [OsString::from("--json"), root.path().as_os_str().to_owned()];
 
-    let expected = cargo_loc::run(arguments());
-    let measured = cargo_loc::run_with_metrics(arguments());
+    let expected = cargo_sloc::run(arguments());
+    let measured = cargo_sloc::run_with_metrics(arguments());
 
     assert_eq!(measured.output, expected);
     assert_eq!(measured.output.exit_code, 0);
@@ -77,8 +77,8 @@ fn cold_warm_and_one_source_edit_reports_are_deterministic() {
     let root = synthetic_workspace();
     let arguments = || [OsString::from("--json"), root.path().as_os_str().to_owned()];
 
-    let cold = cargo_loc::run_with_metrics(arguments());
-    let warm = cargo_loc::run_with_metrics(arguments());
+    let cold = cargo_sloc::run_with_metrics(arguments());
+    let warm = cargo_sloc::run_with_metrics(arguments());
     assert_eq!(cold.output.exit_code, 0);
     assert_eq!(warm.output, cold.output);
 
@@ -88,8 +88,8 @@ fn cold_warm_and_one_source_edit_reports_are_deterministic() {
     edited.extend_from_slice(b"pub fn added_after_warm_run() {}\n");
     fs::write(&edited_path, &edited).expect("write one-source edit");
 
-    let first_edit = cargo_loc::run_with_metrics(arguments());
-    let second_edit = cargo_loc::run_with_metrics(arguments());
+    let first_edit = cargo_sloc::run_with_metrics(arguments());
+    let second_edit = cargo_sloc::run_with_metrics(arguments());
     assert_eq!(first_edit.output.exit_code, 0);
     assert_eq!(second_edit.output, first_edit.output);
     assert_eq!(first_edit.metrics.workload, warm.metrics.workload);
@@ -98,7 +98,7 @@ fn cold_warm_and_one_source_edit_reports_are_deterministic() {
     assert_eq!(edited_report["total"]["lines"], 283);
 
     fs::write(&edited_path, original).expect("restore edited source");
-    let restored = cargo_loc::run_with_metrics(arguments());
+    let restored = cargo_sloc::run_with_metrics(arguments());
     assert_eq!(restored.output, cold.output);
 }
 
@@ -121,8 +121,8 @@ fn representative_selections_are_byte_identical_across_repeated_runs() {
 
     for mut selection in selections {
         selection.push(root.path().as_os_str().to_owned());
-        let first = cargo_loc::run_with_metrics(selection.clone());
-        let second = cargo_loc::run_with_metrics(selection);
+        let first = cargo_sloc::run_with_metrics(selection.clone());
+        let second = cargo_sloc::run_with_metrics(selection);
         assert_eq!(first.output.exit_code, 0);
         assert_eq!(second.output, first.output);
         assert_eq!(second.metrics.workload, first.metrics.workload);
@@ -132,8 +132,10 @@ fn representative_selections_are_byte_identical_across_repeated_runs() {
 #[test]
 fn cfg_equivalent_report_contexts_share_one_source_analysis() {
     let root = shared_target_workspace(8);
-    let measured =
-        cargo_loc::run_with_metrics([OsString::from("--json"), root.path().as_os_str().to_owned()]);
+    let measured = cargo_sloc::run_with_metrics([
+        OsString::from("--json"),
+        root.path().as_os_str().to_owned(),
+    ]);
 
     assert_eq!(measured.output.exit_code, 0);
     let report: serde_json::Value =
@@ -163,10 +165,14 @@ fn production_and_test_cfgs_are_distinct_and_deterministic() {
         "pub fn production() {}\n#[cfg(test)]\nfn test_only() {}\n",
     );
 
-    let first =
-        cargo_loc::run_with_metrics([OsString::from("--json"), root.path().as_os_str().to_owned()]);
-    let second =
-        cargo_loc::run_with_metrics([OsString::from("--json"), root.path().as_os_str().to_owned()]);
+    let first = cargo_sloc::run_with_metrics([
+        OsString::from("--json"),
+        root.path().as_os_str().to_owned(),
+    ]);
+    let second = cargo_sloc::run_with_metrics([
+        OsString::from("--json"),
+        root.path().as_os_str().to_owned(),
+    ]);
 
     assert_eq!(first.output.exit_code, 0);
     assert_eq!(second.output, first.output);
@@ -190,7 +196,7 @@ fn accounting_worker_counts_render_byte_identical_reports() {
 }
 
 fn render_with_workers(root: &std::path::Path, workers: usize) -> Vec<u8> {
-    let selection = match cargo_loc::cli::parse(
+    let selection = match cargo_sloc::cli::parse(
         [OsString::from("--json"), root.as_os_str().to_owned()],
         root,
     )
@@ -199,11 +205,11 @@ fn render_with_workers(root: &std::path::Path, workers: usize) -> Vec<u8> {
         ParseOutcome::Selection(selection) => selection,
         ParseOutcome::EarlyExit { .. } => panic!("unexpected early CLI exit"),
     };
-    let inventory = cargo_loc::discovery::discover(&selection).expect("discover worker fixture");
-    let configured = cargo_loc::configuration::resolve(&selection, &inventory)
+    let inventory = cargo_sloc::discovery::discover(&selection).expect("discover worker fixture");
+    let configured = cargo_sloc::configuration::resolve(&selection, &inventory)
         .expect("configure worker fixture");
-    let sources = cargo_loc::rust_source::discover(&configured).expect("discover worker source");
-    let accounting = cargo_loc::rust_accounting::account_with_workers(&sources, workers)
+    let sources = cargo_sloc::rust_source::discover(&configured).expect("discover worker source");
+    let accounting = cargo_sloc::rust_accounting::account_with_workers(&sources, workers)
         .expect("account worker fixture");
     let mut report = Report::empty(selection);
     report.warnings = inventory.warnings;

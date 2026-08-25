@@ -6,9 +6,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use cargo_loc::cli::ParseOutcome;
-use cargo_loc::discovery::{Inventory, TargetContext, TargetKind};
-use cargo_loc::error::AppError;
+use cargo_sloc::cli::ParseOutcome;
+use cargo_sloc::discovery::{Inventory, TargetContext, TargetKind};
+use cargo_sloc::error::AppError;
 use tempfile::TempDir;
 
 #[test]
@@ -107,13 +107,13 @@ fn operational_pkgid_failures_preserve_cargo_diagnostics() {
     fs::set_permissions(&wrapper, fs::Permissions::from_mode(0o755))
         .expect("make Cargo wrapper executable");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_cargo-loc"))
+    let output = Command::new(env!("CARGO_BIN_EXE_cargo-sloc"))
         .args(["--package", "app"])
         .arg(root.path())
         .env("CARGO", &wrapper)
         .env("REAL_CARGO", env!("CARGO"))
         .output()
-        .expect("run cargo-loc with Cargo wrapper");
+        .expect("run cargo-sloc with Cargo wrapper");
 
     assert!(!output.status.success());
     assert!(output.stdout.is_empty());
@@ -142,20 +142,20 @@ fn cargo_metadata_time_and_output_are_bounded() {
         let wrapper = root.path().join("cargo-wrapper.sh");
         write(
             wrapper.clone(),
-            "#!/bin/sh\nif [ \"$1\" = metadata ]; then\n  if [ \"$CARGO_LOC_TEST_MODE\" = sleep ]; then\n    sleep 30\n  else\n    while :; do printf 0123456789; done\n  fi\nfi\nexec \"$REAL_CARGO\" \"$@\"\n",
+            "#!/bin/sh\nif [ \"$1\" = metadata ]; then\n  if [ \"$CARGO_SLOC_TEST_MODE\" = sleep ]; then\n    sleep 30\n  else\n    while :; do printf 0123456789; done\n  fi\nfi\nexec \"$REAL_CARGO\" \"$@\"\n",
         );
         fs::set_permissions(&wrapper, fs::Permissions::from_mode(0o755))
             .expect("make Cargo wrapper executable");
 
-        let output = Command::new(env!("CARGO_BIN_EXE_cargo-loc"))
+        let output = Command::new(env!("CARGO_BIN_EXE_cargo-sloc"))
             .arg(root.path())
             .env("CARGO", &wrapper)
             .env("REAL_CARGO", env!("CARGO"))
-            .env("CARGO_LOC_TEST_MODE", mode)
-            .env("CARGO_LOC_SUBPROCESS_TIMEOUT_MS", timeout_ms)
-            .env("CARGO_LOC_SUBPROCESS_OUTPUT_LIMIT", "1024")
+            .env("CARGO_SLOC_TEST_MODE", mode)
+            .env("CARGO_SLOC_SUBPROCESS_TIMEOUT_MS", timeout_ms)
+            .env("CARGO_SLOC_SUBPROCESS_OUTPUT_LIMIT", "1024")
             .output()
-            .expect("run cargo-loc with bounded Cargo wrapper");
+            .expect("run cargo-sloc with bounded Cargo wrapper");
 
         assert!(!output.status.success());
         assert!(output.stdout.is_empty());
@@ -357,11 +357,12 @@ fn discover_result<const N: usize>(
 ) -> Result<Inventory, AppError> {
     let mut arguments: Vec<OsString> = arguments.iter().map(OsString::from).collect();
     arguments.push(root.as_os_str().to_owned());
-    let selection = match cargo_loc::cli::parse(arguments, Path::new(env!("CARGO_MANIFEST_DIR")))? {
+    let selection = match cargo_sloc::cli::parse(arguments, Path::new(env!("CARGO_MANIFEST_DIR")))?
+    {
         ParseOutcome::Selection(selection) => selection,
         ParseOutcome::EarlyExit { .. } => panic!("unexpected early CLI exit"),
     };
-    cargo_loc::discovery::discover(&selection)
+    cargo_sloc::discovery::discover(&selection)
 }
 
 fn package_names(inventory: &Inventory) -> Vec<&str> {

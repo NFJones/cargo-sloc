@@ -16,7 +16,7 @@ use crate::model::Selection;
 
 const SNAPSHOT_VERSION: u32 = 2;
 const PREPARATION_VERSION: u32 = 2;
-const CACHE_DIRECTORY: &str = "cargo-loc";
+const CACHE_DIRECTORY: &str = "cargo-sloc";
 
 #[derive(Deserialize, Serialize)]
 struct SnapshotRecord {
@@ -573,7 +573,7 @@ fn snapshot_project_root(selection: &Selection, cache_root: &Path) -> io::Result
 }
 
 fn cache_root(project_root: &Path) -> PathBuf {
-    if let Some(path) = std::env::var_os("CARGO_LOC_CACHE_DIR") {
+    if let Some(path) = std::env::var_os("CARGO_SLOC_CACHE_DIR") {
         return PathBuf::from(path);
     }
     project_root.join(format!(".{CACHE_DIRECTORY}"))
@@ -581,7 +581,7 @@ fn cache_root(project_root: &Path) -> PathBuf {
 
 fn input_fingerprint(selection: &Selection, cache_root: &Path) -> io::Result<String> {
     let mut state = Digest::new();
-    state.add(b"cargo-loc-input-v1");
+    state.add(b"cargo-sloc-input-v1");
     state.add(env!("CARGO_PKG_VERSION").as_bytes());
     state.add(compatibility_digest().as_bytes());
     hash_selection(selection, &mut state)?;
@@ -838,7 +838,7 @@ fn resident_manifest_fingerprint(
     entries: &BTreeMap<PathBuf, ResidentEntry>,
 ) -> io::Result<String> {
     let mut state = Digest::new();
-    state.add(b"cargo-loc-resident-manifest-v1");
+    state.add(b"cargo-sloc-resident-manifest-v1");
     state.add(compatibility_digest().as_bytes());
     state.add(preparation_fingerprint.as_bytes());
     for (path, entry) in entries {
@@ -908,7 +908,7 @@ impl FileStamp {
 
 fn preparation_fingerprint(selection: &Selection) -> io::Result<String> {
     let mut state = Digest::new();
-    state.add(b"cargo-loc-preparation-v1");
+    state.add(b"cargo-sloc-preparation-v1");
     state.add(env!("CARGO_PKG_VERSION").as_bytes());
     state.add(compatibility_digest().as_bytes());
     hash_selection(selection, &mut state)?;
@@ -1038,7 +1038,7 @@ fn excluded_directory(entry: &fs::DirEntry) -> bool {
     entry.file_type().is_ok_and(|kind| kind.is_dir())
         && matches!(
             entry.file_name().to_str(),
-            Some(".git" | "target" | ".cargo-loc")
+            Some(".git" | "target" | ".cargo-sloc")
         )
 }
 
@@ -1270,7 +1270,7 @@ fn compatibility_digest_for(
     inventory_policy_version: u32,
 ) -> String {
     digest([
-        b"cargo-loc-compatibility-v1".as_slice(),
+        b"cargo-sloc-compatibility-v1".as_slice(),
         &[json_schema_version],
         catalog_version.as_bytes(),
         &adapter_version.to_le_bytes(),
@@ -1342,7 +1342,7 @@ mod tests {
     #[test]
     fn validated_snapshot_hits_and_source_changes_invalidate() {
         let root = package("snapshot-hit");
-        let cache = root.path().join(".cargo-loc");
+        let cache = root.path().join(".cargo-sloc");
         let selection = selection(root.path());
 
         let cold = measured(|| run_with_cache(selection.clone(), &cache));

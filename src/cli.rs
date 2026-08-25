@@ -11,11 +11,11 @@ use crate::model::{Root, RootFilePolicy, Selection};
 /// Parsed command-line options before filesystem normalization.
 #[derive(Debug, Parser)]
 #[command(
-    name = "cargo-loc",
+    name = "cargo-sloc",
     version,
     about = "Source line counts for supported files beneath a directory",
     long_about = "Count supported, non-ignored source beneath PATH. Reachable package Rust receives configuration-aware accounting; other recognized files are retained under their Package or the Root scope.",
-    after_help = "Examples:\n  cargo loc\n  cargo loc ../workspace\n  cargo loc --features serde,simd\n  cargo loc --no-default-features --features serde\n  cargo loc --root-files exclude\n  cargo loc --json"
+    after_help = "Examples:\n  cargo sloc\n  cargo sloc ../workspace\n  cargo sloc --features serde,simd\n  cargo sloc --no-default-features --features serde\n  cargo sloc --root-files exclude\n  cargo sloc --json"
 )]
 struct Arguments {
     /// Root directory to search for supported source and Cargo projects.
@@ -90,7 +90,7 @@ struct Arguments {
     #[arg(long)]
     benches: bool,
 
-    /// Select all cargo-loc package targets and contexts.
+    /// Select all cargo-sloc package targets and contexts.
     #[arg(long)]
     all_targets: bool,
 
@@ -130,12 +130,12 @@ where
     let mut arguments: Vec<OsString> = arguments.into_iter().map(Into::into).collect();
     if arguments
         .first()
-        .is_some_and(|argument| argument == OsStr::new("loc"))
+        .is_some_and(|argument| argument == OsStr::new("sloc"))
     {
         arguments.remove(0);
     }
 
-    let argv = std::iter::once(OsString::from("cargo-loc")).chain(arguments);
+    let argv = std::iter::once(OsString::from("cargo-sloc")).chain(arguments);
     let parsed = match Arguments::try_parse_from(argv) {
         Ok(parsed) => parsed,
         Err(error) => {

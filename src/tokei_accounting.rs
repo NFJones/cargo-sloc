@@ -11,7 +11,7 @@ use crate::error::AppError;
 use crate::generic_source::GenericSourceInventory;
 use crate::model::{Counts, TestCount};
 
-/// Version of cargo-loc's Tokei recognition and conversion behavior.
+/// Version of cargo-sloc's Tokei recognition and conversion behavior.
 pub const ADAPTER_VERSION: u32 = 1;
 
 /// Pinned Tokei catalog compatibility version.

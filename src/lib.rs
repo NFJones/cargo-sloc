@@ -1,4 +1,4 @@
-//! Library-owned command orchestration for `cargo-loc`.
+//! Library-owned command orchestration for `cargo-sloc`.
 
 pub mod accountant;
 pub mod app;
@@ -24,7 +24,7 @@ pub use app::ProcessOutput;
 pub use metrics::MeasuredRun;
 pub use snapshot::ResidentSession;
 
-/// Runs `cargo-loc` without writing to process streams.
+/// Runs `cargo-sloc` without writing to process streams.
 ///
 /// The returned output is complete and buffered, allowing the process entry
 /// point to keep stdout empty after parsing, validation, or rendering errors.
@@ -36,7 +36,7 @@ where
     app::run(arguments)
 }
 
-/// Runs `cargo-loc` while collecting opt-in performance observations.
+/// Runs `cargo-sloc` while collecting opt-in performance observations.
 ///
 /// Metrics are thread-local, bypass persistent snapshots, and are not included
 /// in user-visible report bytes.

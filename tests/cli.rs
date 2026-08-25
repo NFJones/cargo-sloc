@@ -16,7 +16,7 @@ const TABLE_EMPTY: &str = "╭─────────┬──────�
 fn direct_and_cargo_style_invocation_are_equivalent() {
     let root = tempfile::tempdir().expect("create Root");
     let direct = run(["--json", root.path().to_str().expect("UTF-8 Root")]);
-    let cargo_style = run(["loc", "--json", root.path().to_str().expect("UTF-8 Root")]);
+    let cargo_style = run(["sloc", "--json", root.path().to_str().expect("UTF-8 Root")]);
 
     assert_success(&direct);
     assert_success(&cargo_style);
@@ -179,7 +179,7 @@ fn help_and_version_exit_successfully_on_stdout() {
     let help_text = String::from_utf8(help.stdout).expect("UTF-8 help");
     assert!(help_text.contains("Count supported, non-ignored source beneath PATH"));
     assert!(help_text.contains("--root-files <ROOT_FILES>"));
-    assert!(help_text.contains("cargo loc --no-default-features --features serde"));
+    assert!(help_text.contains("cargo sloc --no-default-features --features serde"));
     assert!(help_text.contains("Emit schema-version 3 JSON instead of the terminal table"));
     assert!(help.stderr.is_empty());
 
@@ -187,7 +187,7 @@ fn help_and_version_exit_successfully_on_stdout() {
     assert_success(&version);
     assert_eq!(
         String::from_utf8(version.stdout).expect("UTF-8 version"),
-        format!("cargo-loc {}\n", env!("CARGO_PKG_VERSION"))
+        format!("cargo-sloc {}\n", env!("CARGO_PKG_VERSION"))
     );
     assert!(version.stderr.is_empty());
 }
@@ -218,10 +218,10 @@ fn invalid_roots_use_status_one_and_leave_stdout_empty() {
 }
 
 #[test]
-fn a_root_named_loc_is_unambiguous_with_a_path_prefix() {
+fn a_root_named_sloc_is_unambiguous_with_a_path_prefix() {
     let parent = TempDir::new().expect("create parent");
-    std::fs::create_dir(parent.path().join("loc")).expect("create loc Root");
-    let output = run_in(["./loc"], parent.path());
+    std::fs::create_dir(parent.path().join("sloc")).expect("create sloc Root");
+    let output = run_in(["./sloc"], parent.path());
 
     assert_success(&output);
     assert_eq!(
@@ -243,17 +243,17 @@ where
     I: IntoIterator<Item = S>,
     S: AsRef<std::ffi::OsStr>,
 {
-    Command::new(env!("CARGO_BIN_EXE_cargo-loc"))
+    Command::new(env!("CARGO_BIN_EXE_cargo-sloc"))
         .args(arguments)
         .current_dir(current_directory)
         .output()
-        .expect("run cargo-loc")
+        .expect("run cargo-sloc")
 }
 
 fn assert_success(output: &Output) {
     assert!(
         output.status.success(),
-        "cargo-loc failed with {}\nstdout:\n{}\nstderr:\n{}",
+        "cargo-sloc failed with {}\nstdout:\n{}\nstderr:\n{}",
         output.status,
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)

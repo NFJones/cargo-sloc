@@ -67,7 +67,7 @@ impl Fixture {
         let log = self.root.join("rustc-invocations.bin");
         fs::write(
             &wrapper,
-            "#!/bin/sh\n{ printf 'BEGIN\\0'; for arg in \"$@\"; do printf '%s\\0' \"$arg\"; done; printf 'END\\0'; } >> \"$CARGO_LOC_RUSTC_LOG\"\nexec \"$@\"\n",
+            "#!/bin/sh\n{ printf 'BEGIN\\0'; for arg in \"$@\"; do printf '%s\\0' \"$arg\"; done; printf 'END\\0'; } >> \"$CARGO_SLOC_RUSTC_LOG\"\nexec \"$@\"\n",
         )
         .expect("write rustc wrapper");
         fs::set_permissions(&wrapper, fs::Permissions::from_mode(0o755))
@@ -85,7 +85,7 @@ impl Fixture {
             .env("CARGO_TERM_COLOR", "never")
             .env("CARGO_BUILD_JOBS", "1")
             .env("RUSTC_WRAPPER", &wrapper)
-            .env("CARGO_LOC_RUSTC_LOG", &log)
+            .env("CARGO_SLOC_RUSTC_LOG", &log)
             .output()
             .expect("run observed Cargo fixture");
         assert_success(&output, "observed cargo check");

@@ -4,9 +4,9 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use cargo_loc::configuration::{ConfiguredInventory, ConfiguredPackage, ConfiguredProject};
-use cargo_loc::discovery::{TargetContext, TargetInventory, TargetKind};
-use cargo_loc::generic_source::{INVENTORY_POLICY_VERSION, discover, discover_root};
+use cargo_sloc::configuration::{ConfiguredInventory, ConfiguredPackage, ConfiguredProject};
+use cargo_sloc::discovery::{TargetContext, TargetInventory, TargetKind};
+use cargo_sloc::generic_source::{INVENTORY_POLICY_VERSION, discover, discover_root};
 use tempfile::TempDir;
 
 #[test]
@@ -265,7 +265,7 @@ fn package(root: PathBuf, name: &str) {
 
 fn relative_paths(
     root: &Path,
-    files: &[cargo_loc::generic_source::GenericSource],
+    files: &[cargo_sloc::generic_source::GenericSource],
 ) -> BTreeSet<String> {
     let root = root.canonicalize().expect("canonical Root");
     files

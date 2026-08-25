@@ -368,6 +368,7 @@ fn valid_features_survive_an_empty_target_selection() {
 #[cfg(target_os = "linux")]
 #[test]
 fn non_utf8_json_root_fails_without_partial_stdout() {
+    use std::ffi::OsString;
     use std::os::unix::ffi::OsStringExt;
 
     let parent = TempDir::new().expect("create parent");
@@ -413,17 +414,17 @@ where
     I: IntoIterator<Item = S>,
     S: AsRef<std::ffi::OsStr>,
 {
-    Command::new(env!("CARGO_BIN_EXE_cargo-loc"))
+    Command::new(env!("CARGO_BIN_EXE_cargo-sloc"))
         .args(arguments)
         .arg(root)
         .output()
-        .expect("run cargo-loc")
+        .expect("run cargo-sloc")
 }
 
 fn assert_success(output: &Output) {
     assert!(
         output.status.success(),
-        "cargo-loc failed with {}\nstdout:\n{}\nstderr:\n{}",
+        "cargo-sloc failed with {}\nstdout:\n{}\nstderr:\n{}",
         output.status,
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)

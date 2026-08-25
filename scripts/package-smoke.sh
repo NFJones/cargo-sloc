@@ -71,8 +71,8 @@ mkdir -p "$install_root" "$cargo_home" "$target_dir"
 CARGO_HOME="$cargo_home" CARGO_TARGET_DIR="$target_dir" \
     cargo install --path "$source_root" --locked --root "$install_root"
 
-PATH="$install_root/bin:$PATH" cargo-loc --help >/dev/null
-PATH="$install_root/bin:$PATH" cargo loc --help >/dev/null
+PATH="$install_root/bin:$PATH" cargo-sloc --help >/dev/null
+PATH="$install_root/bin:$PATH" cargo sloc --help >/dev/null
 
 fixture="$work/fixture"
 mkdir -p "$fixture/src"
@@ -88,12 +88,12 @@ cat > "$fixture/src/lib.rs" <<'EOF'
 pub fn smoke() {}
 EOF
 
-"$install_root/bin/cargo-loc" "$fixture" > "$work/report.md"
+"$install_root/bin/cargo-sloc" "$fixture" > "$work/report.md"
 grep -Fq '│ packaged-smoke ┆ TOML     ┆     1 ┆     4 ┆     4 ┆      0 ┆        0 ┆    4 ┆  n/a │' "$work/report.md"
 grep -Fq '│                ┆ Rust     ┆     1 ┆     3 ┆     3 ┆      1 ┆        1 ┆    1 ┆    0 │' "$work/report.md"
 grep -Fq '│ Total          ┆ All      ┆     2 ┆     7 ┆     7 ┆      1 ┆        1 ┆    5 ┆    0 │' "$work/report.md"
 
-"$install_root/bin/cargo-loc" --json "$fixture" > "$work/report.json"
+"$install_root/bin/cargo-sloc" --json "$fixture" > "$work/report.json"
 grep -Fq '"name": "packaged-smoke"' "$work/report.json"
 grep -Fq '"files": 1' "$work/report.json"
 grep -Fq '"code": 1' "$work/report.json"

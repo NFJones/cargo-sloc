@@ -6,11 +6,11 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use cargo_loc::cli::ParseOutcome;
-use cargo_loc::configuration::{BuildContext, ConfiguredInventory};
-use cargo_loc::discovery::{TargetKind, discover};
-use cargo_loc::error::AppError;
-use cargo_loc::model::{BuildRole, CfgOption, ContextKind, Selection};
+use cargo_sloc::cli::ParseOutcome;
+use cargo_sloc::configuration::{BuildContext, ConfiguredInventory};
+use cargo_sloc::discovery::{TargetKind, discover};
+use cargo_sloc::error::AppError;
+use cargo_sloc::model::{BuildRole, CfgOption, ContextKind, Selection};
 use tempfile::TempDir;
 
 #[test]
@@ -300,15 +300,15 @@ fn invalid_compilation_targets_fail_without_approximating_cfgs() {
 fn command_json_reports_resolved_project_targets() {
     let root = package_fixture("reported-targets", false, false);
     let host = host_target();
-    let output = Command::new(env!("CARGO_BIN_EXE_cargo-loc"))
+    let output = Command::new(env!("CARGO_BIN_EXE_cargo-sloc"))
         .args(["--json", "--target", &host])
         .arg(root.path())
         .output()
-        .expect("run cargo-loc");
+        .expect("run cargo-sloc");
 
     assert!(
         output.status.success(),
-        "cargo-loc failed:\n{}",
+        "cargo-sloc failed:\n{}",
         String::from_utf8_lossy(&output.stderr)
     );
     assert!(output.stderr.is_empty());
@@ -335,11 +335,11 @@ fn command_json_reports_resolved_project_targets() {
 #[test]
 fn command_target_resolution_failures_leave_stdout_empty() {
     let root = package_fixture("failed-target", false, false);
-    let output = Command::new(env!("CARGO_BIN_EXE_cargo-loc"))
+    let output = Command::new(env!("CARGO_BIN_EXE_cargo-sloc"))
         .args(["--target", "not-a-real-rust-target"])
         .arg(root.path())
         .output()
-        .expect("run cargo-loc");
+        .expect("run cargo-sloc");
 
     assert!(!output.status.success());
     assert!(output.stdout.is_empty());
@@ -362,12 +362,12 @@ fn target_specific_and_environment_rustflags_are_reported_as_unmodeled() {
             .any(|warning| warning.code == "unmodeled-rustflags")
     );
 
-    let output = Command::new(env!("CARGO_BIN_EXE_cargo-loc"))
+    let output = Command::new(env!("CARGO_BIN_EXE_cargo-sloc"))
         .arg("--json")
         .arg(root.path())
         .env("RUSTFLAGS", "--cfg environment")
         .output()
-        .expect("run cargo-loc with RUSTFLAGS");
+        .expect("run cargo-sloc with RUSTFLAGS");
     assert!(
         output.status.success(),
         "stderr: {}",
@@ -406,13 +406,13 @@ fn configure_result<const N: usize>(
 ) -> Result<ConfiguredInventory, AppError> {
     let selection = selection(root, arguments)?;
     let inventory = discover(&selection)?;
-    cargo_loc::configuration::resolve(&selection, &inventory)
+    cargo_sloc::configuration::resolve(&selection, &inventory)
 }
 
 fn selection<const N: usize>(root: &Path, arguments: [&str; N]) -> Result<Selection, AppError> {
     let mut arguments: Vec<OsString> = arguments.iter().map(OsString::from).collect();
     arguments.push(root.as_os_str().to_owned());
-    match cargo_loc::cli::parse(arguments, Path::new(env!("CARGO_MANIFEST_DIR")))? {
+    match cargo_sloc::cli::parse(arguments, Path::new(env!("CARGO_MANIFEST_DIR")))? {
         ParseOutcome::Selection(selection) => Ok(selection),
         ParseOutcome::EarlyExit { .. } => panic!("unexpected early CLI exit"),
     }

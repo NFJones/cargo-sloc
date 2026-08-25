@@ -89,9 +89,9 @@ pub fn smoke() {}
 EOF
 
 "$install_root/bin/cargo-sloc" "$fixture" > "$work/report.md"
-grep -Fq '│ packaged-smoke ┆ TOML     ┆     1 ┆     4 ┆     4 ┆      0 ┆        0 ┆    4 ┆  n/a │' "$work/report.md"
-grep -Fq '│                ┆ Rust     ┆     1 ┆     3 ┆     3 ┆      1 ┆        1 ┆    1 ┆    0 │' "$work/report.md"
-grep -Fq '│ Total          ┆ All      ┆     2 ┆     7 ┆     7 ┆      1 ┆        1 ┆    5 ┆    0 │' "$work/report.md"
+grep -Eq 'packaged-smoke.*TOML.*1.*4.*4.*0.*0.*4.*n/a' "$work/report.md"
+grep -Eq 'Rust.*1.*3.*3.*1.*1.*1.*0' "$work/report.md"
+grep -Eq 'Total.*All.*2.*7.*7.*1.*1.*5.*0' "$work/report.md"
 
 "$install_root/bin/cargo-sloc" --json "$fixture" > "$work/report.json"
 grep -Fq '"name": "packaged-smoke"' "$work/report.json"

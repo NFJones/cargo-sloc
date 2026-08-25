@@ -137,3 +137,5 @@ NOT rely on GNU-only shell extensions.
   specification or schema effects, and known limitations.
 - Never commit secrets, credentials, local environment files, generated build
   output, or editor state.
+- Always commit your changes at the end of a turn with a long-form informative
+  message. Never skip this.

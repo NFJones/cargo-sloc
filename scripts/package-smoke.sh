@@ -33,9 +33,8 @@ while IFS= read -r path; do
     case "$path" in
         .cargo_vcs_info.json|.gitignore|AGENTS.md|CHANGELOG.md|COPYING|Cargo.lock|Cargo.toml|Cargo.toml.orig|Justfile|README.md|SPEC.md) ;;
         benches/pipeline.rs|benches/support/mod.rs) ;;
-        docs/PERFORMANCE.md|docs/TRACEABILITY.md|docs/design/0001-analysis-feasibility.md) ;;
-        src/accountant.rs|src/app.rs|src/cli.rs|src/configuration.rs|src/discovery.rs|src/error.rs|src/lib.rs|src/main.rs|src/model.rs|src/process.rs|src/report.rs|src/rust_accounting.rs|src/rust_source.rs) ;;
-        tests/cargo_contexts.rs|tests/cfg_spans.rs|tests/cli.rs|tests/configuration.rs|tests/discovery.rs|tests/performance.rs|tests/reporting.rs|tests/rust_accounting.rs|tests/rust_source.rs|tests/support/mod.rs|tests/traceability.rs) ;;
+        src/accountant.rs|src/app.rs|src/cli.rs|src/configuration.rs|src/discovery.rs|src/error.rs|src/generic_source.rs|src/lib.rs|src/main.rs|src/metrics.rs|src/model.rs|src/process.rs|src/report.rs|src/routed_accounting.rs|src/rust_accounting.rs|src/rust_analysis.rs|src/rust_source.rs|src/snapshot.rs|src/tokei_accounting.rs) ;;
+        tests/cargo_contexts.rs|tests/cfg_spans.rs|tests/cli.rs|tests/configuration.rs|tests/discovery.rs|tests/generic_source.rs|tests/performance.rs|tests/reporting.rs|tests/rust_accounting.rs|tests/rust_source.rs|tests/support/mod.rs) ;;
         tests/fixtures/cfg-spans/all_positions.rs) ;;
         tests/fixtures/cargo-context/resolver-v1/*|tests/fixtures/cargo-context/resolver-v2/*|tests/fixtures/cargo-context/resolver-v3/*) ;;
         *)
@@ -90,7 +89,9 @@ pub fn smoke() {}
 EOF
 
 "$install_root/bin/cargo-loc" "$fixture" > "$work/report.md"
-grep -Fq '| packaged-smoke | Rust | 1 | 3 | 1 | 1 | 1 | 0 |' "$work/report.md"
+grep -Fq '│ packaged-smoke ┆ TOML     ┆     1 ┆     4 ┆     4 ┆      0 ┆        0 ┆    4 ┆  n/a │' "$work/report.md"
+grep -Fq '│                ┆ Rust     ┆     1 ┆     3 ┆     3 ┆      1 ┆        1 ┆    1 ┆    0 │' "$work/report.md"
+grep -Fq '│ Total          ┆ All      ┆     2 ┆     7 ┆     7 ┆      1 ┆        1 ┆    5 ┆    0 │' "$work/report.md"
 
 "$install_root/bin/cargo-loc" --json "$fixture" > "$work/report.json"
 grep -Fq '"name": "packaged-smoke"' "$work/report.json"

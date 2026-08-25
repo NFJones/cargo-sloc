@@ -141,8 +141,7 @@ scripts, or expand macros. In particular:
   ignored.
 
 See [SPEC.md](SPEC.md) for normative behavior, including the complete JSON
-contract and detailed ignore, identity, cache, and scanner rules. See
-[docs/PERFORMANCE.md](docs/PERFORMANCE.md) for benchmark methodology.
+contract and detailed ignore, identity, cache, and scanner rules.
 
 ## Development
 

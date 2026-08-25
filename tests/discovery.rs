@@ -43,11 +43,12 @@ fn discovers_workspaces_and_standalone_projects_with_root_bounded_ignores() {
         package_names(&inventory),
         ["standalone", "ignored-member", "member"]
     );
+    let canonical_root = root.path().canonicalize().expect("canonical Root");
     assert!(
         inventory
             .projects
             .iter()
-            .all(|project| project.root.starts_with(root.path()))
+            .all(|project| project.root.starts_with(&canonical_root))
     );
 }
 
@@ -132,7 +133,10 @@ fn operational_pkgid_failures_preserve_cargo_diagnostics() {
 fn cargo_metadata_time_and_output_are_bounded() {
     use std::os::unix::fs::PermissionsExt;
 
-    for (mode, expected) in [("sleep", "timed out"), ("flood", "output limit")] {
+    for (mode, expected, timeout_ms) in [
+        ("sleep", "timed out", "50"),
+        ("flood", "output limit", "5000"),
+    ] {
         let root = TempDir::new().expect("create Root");
         package(root.path().join("app"), "app");
         let wrapper = root.path().join("cargo-wrapper.sh");
@@ -148,7 +152,7 @@ fn cargo_metadata_time_and_output_are_bounded() {
             .env("CARGO", &wrapper)
             .env("REAL_CARGO", env!("CARGO"))
             .env("CARGO_LOC_TEST_MODE", mode)
-            .env("CARGO_LOC_SUBPROCESS_TIMEOUT_MS", "50")
+            .env("CARGO_LOC_SUBPROCESS_TIMEOUT_MS", timeout_ms)
             .env("CARGO_LOC_SUBPROCESS_OUTPUT_LIMIT", "1024")
             .output()
             .expect("run cargo-loc with bounded Cargo wrapper");

@@ -355,6 +355,7 @@ mod tests {
             crate::tokei_accounting::is_candidate_path,
         )
         .expect("discover root ledger");
+        let canonical_root = root.path().canonicalize().expect("canonical Root");
         let mut cache = crate::tokei_accounting::AccountingCache::default();
 
         let accounting = resolve(&configured, &sources, &inventory, &mut cache)
@@ -362,7 +363,7 @@ mod tests {
 
         assert_eq!(accounting.contributions.len(), 2);
         assert!(accounting.contributions.iter().all(|contribution| {
-            matches!(contribution.scope, ScopeId::Root { ref path } if path == root.path())
+            matches!(contribution.scope, ScopeId::Root { ref path } if path == &canonical_root)
         }));
         let rust = accounting
             .contributions

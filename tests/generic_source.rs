@@ -267,12 +267,13 @@ fn relative_paths(
     root: &Path,
     files: &[cargo_loc::generic_source::GenericSource],
 ) -> BTreeSet<String> {
+    let root = root.canonicalize().expect("canonical Root");
     files
         .iter()
         .map(|source| {
             source
                 .path
-                .strip_prefix(root)
+                .strip_prefix(&root)
                 .expect("source beneath Root")
                 .to_string_lossy()
                 .replace('\\', "/")
@@ -281,6 +282,7 @@ fn relative_paths(
 }
 
 fn relative(root: &Path, path: &Path) -> String {
+    let root = root.canonicalize().expect("canonical Root");
     path.strip_prefix(root)
         .expect("path beneath Root")
         .to_string_lossy()

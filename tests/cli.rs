@@ -96,7 +96,11 @@ fn json_normalizes_repeated_feature_target_and_selector_options() {
         .find(|package| package["language"] == "TOML")
         .expect("TOML row");
     assert_eq!(rust["scope"]["name"], "normalized");
-    let manifest_path = root.path().join("Cargo.toml");
+    let manifest_path = root
+        .path()
+        .canonicalize()
+        .expect("canonical Root")
+        .join("Cargo.toml");
     assert_eq!(
         rust["scope"]["manifest_path"].as_str(),
         manifest_path.to_str()

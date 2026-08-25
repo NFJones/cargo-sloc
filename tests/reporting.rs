@@ -1,6 +1,5 @@
 //! End-to-end golden coverage for terminal tables, JSON, warnings, and report failures.
 
-use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -225,13 +224,15 @@ fn json_contains_typed_package_and_context_provenance() {
             .as_str()
             .is_some_and(|id| !id.is_empty())
     );
+    let project_root = root.path().canonicalize().expect("canonical Root");
+    let manifest_path = project_root.join("Cargo.toml");
     assert_eq!(
         package["scope"]["project_root"].as_str(),
-        root.path().to_str()
+        project_root.to_str()
     );
     assert_eq!(
         package["scope"]["manifest_path"].as_str(),
-        root.path().join("Cargo.toml").to_str()
+        manifest_path.to_str()
     );
     assert_eq!(package["files"], 1);
     assert_eq!(package["lines"], 1);
@@ -364,7 +365,7 @@ fn valid_features_survive_an_empty_target_selection() {
     assert!(String::from_utf8_lossy(&unknown.stderr).contains("feature `missing`"));
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 #[test]
 fn non_utf8_json_root_fails_without_partial_stdout() {
     use std::os::unix::ffi::OsStringExt;

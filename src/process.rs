@@ -2,16 +2,15 @@
 
 use std::io::{self, Read};
 use std::process::{Command, ExitStatus, Stdio};
-#[cfg(unix)]
+#[cfg(not(unix))]
+use std::sync::mpsc::TryRecvError;
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
 };
 use std::thread;
-use std::time::Duration;
-#[cfg(not(unix))]
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use thiserror::Error;
 
@@ -145,52 +144,47 @@ fn run_with_limits(
     let stdout = child.stdout.take().expect("piped stdout is present");
     let stderr = child.stderr.take().expect("piped stderr is present");
     let exceeded = Arc::new(AtomicBool::new(false));
+    let (events, receiver) = mpsc::channel();
+    spawn_reader(
+        stdout,
+        limits.stream_bytes,
+        Arc::clone(&exceeded),
+        events.clone(),
+        ProcessStream::Stdout,
+    );
+    spawn_reader(
+        stderr,
+        limits.stream_bytes,
+        Arc::clone(&exceeded),
+        events.clone(),
+        ProcessStream::Stderr,
+    );
 
     #[cfg(unix)]
     {
-        let (events, receiver) = mpsc::channel();
-        let stdout_reader = spawn_reader(
-            stdout,
-            limits.stream_bytes,
-            Arc::clone(&exceeded),
-            Some(events.clone()),
-        );
-        let stderr_reader = spawn_reader(
-            stderr,
-            limits.stream_bytes,
-            Arc::clone(&exceeded),
-            Some(events.clone()),
-        );
-        wait_with_notifications(
-            child,
-            purpose,
-            limits,
-            exceeded,
-            stdout_reader,
-            stderr_reader,
-            events,
-            receiver,
-        )
+        wait_with_notifications(child, purpose, limits, events, receiver)
     }
 
     #[cfg(not(unix))]
     {
-        let stdout_reader = spawn_reader(stdout, limits.stream_bytes, Arc::clone(&exceeded));
-        let stderr_reader = spawn_reader(stderr, limits.stream_bytes, Arc::clone(&exceeded));
-        wait_with_polling(
-            child,
-            purpose,
-            limits,
-            exceeded,
-            stdout_reader,
-            stderr_reader,
-        )
+        drop(events);
+        wait_with_polling(child, purpose, limits, exceeded, receiver)
     }
 }
 
-#[cfg(unix)]
+#[derive(Clone, Copy)]
+enum ProcessStream {
+    Stdout,
+    Stderr,
+}
+
 enum ProcessEvent {
+    #[cfg(unix)]
     Exited(io::Result<ExitStatus>),
+    Stream {
+        stream: ProcessStream,
+        output: io::Result<Vec<u8>>,
+    },
     OutputLimit,
 }
 
@@ -200,100 +194,68 @@ fn wait_with_notifications(
     mut child: std::process::Child,
     purpose: String,
     limits: Limits,
-    exceeded: Arc<AtomicBool>,
-    stdout_reader: thread::JoinHandle<io::Result<Vec<u8>>>,
-    stderr_reader: thread::JoinHandle<io::Result<Vec<u8>>>,
     events: Sender<ProcessEvent>,
     receiver: Receiver<ProcessEvent>,
 ) -> Result<BoundedOutput, ProcessError> {
     let process_id = child.id();
-    let waiter = thread::spawn(move || {
+    thread::spawn(move || {
         let result = child.wait();
         let _ = events.send(ProcessEvent::Exited(result));
     });
-
-    let status = match receiver.recv_timeout(limits.timeout) {
-        Ok(ProcessEvent::Exited(result)) => result.map_err(|source| ProcessError::Wait {
-            purpose: purpose.clone(),
-            source,
-        })?,
-        Ok(ProcessEvent::OutputLimit) => {
-            terminate_process(process_id);
-            let _ = receive_exit(&receiver, &purpose)?;
-            join_waiter(waiter, &purpose)?;
-            join_reader(stdout_reader, &purpose)?;
-            join_reader(stderr_reader, &purpose)?;
-            return Err(ProcessError::OutputLimit {
-                purpose,
-                limit: limits.stream_bytes,
+    let started = Instant::now();
+    let mut status = None;
+    let mut stdout = None;
+    let mut stderr = None;
+    loop {
+        if status.is_some() && stdout.is_some() && stderr.is_some() {
+            return Ok(BoundedOutput {
+                status: status.take().expect("completed process status is present"),
+                stdout: stdout.take().expect("completed stdout is present"),
+                stderr: stderr.take().expect("completed stderr is present"),
             });
         }
-        Err(RecvTimeoutError::Timeout) => {
+        let remaining = limits.timeout.saturating_sub(started.elapsed());
+        if remaining.is_zero() {
             terminate_process(process_id);
-            let _ = receive_exit(&receiver, &purpose)?;
-            join_waiter(waiter, &purpose)?;
-            join_reader(stdout_reader, &purpose)?;
-            join_reader(stderr_reader, &purpose)?;
             return Err(ProcessError::Timeout {
                 purpose,
                 timeout: limits.timeout,
             });
         }
-        Err(RecvTimeoutError::Disconnected) => {
-            terminate_process(process_id);
-            return Err(ProcessError::Capture {
-                purpose,
-                message: "subprocess wait channel disconnected".to_owned(),
-            });
-        }
-    };
-
-    join_waiter(waiter, &purpose)?;
-    let stdout = join_reader(stdout_reader, &purpose)?;
-    let stderr = join_reader(stderr_reader, &purpose)?;
-    if exceeded.load(Ordering::Acquire) {
-        return Err(ProcessError::OutputLimit {
-            purpose,
-            limit: limits.stream_bytes,
-        });
-    }
-    Ok(BoundedOutput {
-        status,
-        stdout,
-        stderr,
-    })
-}
-
-#[cfg(unix)]
-fn receive_exit(
-    receiver: &Receiver<ProcessEvent>,
-    purpose: &str,
-) -> Result<ExitStatus, ProcessError> {
-    loop {
-        match receiver.recv() {
-            Ok(ProcessEvent::Exited(result)) => {
-                return result.map_err(|source| ProcessError::Wait {
-                    purpose: purpose.to_owned(),
-                    source,
+        match receiver.recv_timeout(remaining) {
+            Ok(ProcessEvent::Exited(result)) => match result {
+                Ok(exit_status) => status = Some(exit_status),
+                Err(source) => {
+                    terminate_process(process_id);
+                    return Err(ProcessError::Wait { purpose, source });
+                }
+            },
+            Ok(ProcessEvent::Stream { stream, output }) => {
+                store_stream_output(stream, output, &purpose, &mut stdout, &mut stderr)?;
+            }
+            Ok(ProcessEvent::OutputLimit) => {
+                terminate_process(process_id);
+                return Err(ProcessError::OutputLimit {
+                    purpose,
+                    limit: limits.stream_bytes,
                 });
             }
-            Ok(ProcessEvent::OutputLimit) => {}
-            Err(_) => {
+            Err(RecvTimeoutError::Timeout) => {
+                terminate_process(process_id);
+                return Err(ProcessError::Timeout {
+                    purpose,
+                    timeout: limits.timeout,
+                });
+            }
+            Err(RecvTimeoutError::Disconnected) => {
+                terminate_process(process_id);
                 return Err(ProcessError::Capture {
-                    purpose: purpose.to_owned(),
+                    purpose,
                     message: "subprocess wait channel disconnected".to_owned(),
                 });
             }
         }
     }
-}
-
-#[cfg(unix)]
-fn join_waiter(waiter: thread::JoinHandle<()>, purpose: &str) -> Result<(), ProcessError> {
-    waiter.join().map_err(|_| ProcessError::Capture {
-        purpose: purpose.to_owned(),
-        message: "subprocess waiter panicked".to_owned(),
-    })
 }
 
 #[cfg(not(unix))]
@@ -302,97 +264,113 @@ fn wait_with_polling(
     purpose: String,
     limits: Limits,
     exceeded: Arc<AtomicBool>,
-    stdout_reader: thread::JoinHandle<io::Result<Vec<u8>>>,
-    stderr_reader: thread::JoinHandle<io::Result<Vec<u8>>>,
+    receiver: Receiver<ProcessEvent>,
 ) -> Result<BoundedOutput, ProcessError> {
     let deadline = Instant::now() + limits.timeout;
+    let mut status = None;
+    let mut stdout = None;
+    let mut stderr = None;
 
-    let status = loop {
+    loop {
+        loop {
+            match receiver.try_recv() {
+                Ok(ProcessEvent::Stream { stream, output }) => {
+                    store_stream_output(stream, output, &purpose, &mut stdout, &mut stderr)?;
+                }
+                Ok(ProcessEvent::OutputLimit) => {
+                    terminate(&mut child);
+                    return Err(ProcessError::OutputLimit {
+                        purpose,
+                        limit: limits.stream_bytes,
+                    });
+                }
+                Err(TryRecvError::Empty) => break,
+                Err(TryRecvError::Disconnected) => {
+                    if stdout.is_none() || stderr.is_none() {
+                        terminate(&mut child);
+                        return Err(ProcessError::Capture {
+                            purpose,
+                            message: "subprocess output channel disconnected".to_owned(),
+                        });
+                    }
+                    break;
+                }
+            }
+        }
         if exceeded.load(Ordering::Acquire) {
             terminate(&mut child);
-            let _ = child.wait();
-            join_reader(stdout_reader, &purpose)?;
-            join_reader(stderr_reader, &purpose)?;
             return Err(ProcessError::OutputLimit {
                 purpose,
                 limit: limits.stream_bytes,
             });
         }
-        if let Some(status) = child.try_wait().map_err(|source| ProcessError::Wait {
-            purpose: purpose.clone(),
-            source,
-        })? {
-            break status;
+        if status.is_none() {
+            status = child.try_wait().map_err(|source| ProcessError::Wait {
+                purpose: purpose.clone(),
+                source,
+            })?;
+        }
+        if status.is_some() && stdout.is_some() && stderr.is_some() {
+            return Ok(BoundedOutput {
+                status: status.take().expect("completed process status is present"),
+                stdout: stdout.take().expect("completed stdout is present"),
+                stderr: stderr.take().expect("completed stderr is present"),
+            });
         }
         if Instant::now() >= deadline {
             terminate(&mut child);
-            let _ = child.wait();
-            join_reader(stdout_reader, &purpose)?;
-            join_reader(stderr_reader, &purpose)?;
             return Err(ProcessError::Timeout {
                 purpose,
                 timeout: limits.timeout,
             });
         }
         thread::sleep(POLL_INTERVAL);
-    };
-
-    let stdout = join_reader(stdout_reader, &purpose)?;
-    let stderr = join_reader(stderr_reader, &purpose)?;
-    if exceeded.load(Ordering::Acquire) {
-        return Err(ProcessError::OutputLimit {
-            purpose,
-            limit: limits.stream_bytes,
-        });
     }
-    Ok(BoundedOutput {
-        status,
-        stdout,
-        stderr,
-    })
 }
 
 fn spawn_reader(
     mut reader: impl Read + Send + 'static,
     limit: usize,
     exceeded: Arc<AtomicBool>,
-    #[cfg(unix)] events: Option<Sender<ProcessEvent>>,
-) -> thread::JoinHandle<io::Result<Vec<u8>>> {
+    events: Sender<ProcessEvent>,
+    stream: ProcessStream,
+) {
     thread::spawn(move || {
-        let mut captured = Vec::new();
-        let mut buffer = [0_u8; 8192];
-        loop {
-            let read = reader.read(&mut buffer)?;
-            if read == 0 {
-                return Ok(captured);
-            }
-            let remaining = limit.saturating_sub(captured.len());
-            captured.extend_from_slice(&buffer[..read.min(remaining)]);
-            if read > remaining {
-                exceeded.store(true, Ordering::Release);
-                #[cfg(unix)]
-                if let Some(events) = &events {
+        let output = (|| {
+            let mut captured = Vec::new();
+            let mut buffer = [0_u8; 8192];
+            loop {
+                let read = reader.read(&mut buffer)?;
+                if read == 0 {
+                    return Ok(captured);
+                }
+                let remaining = limit.saturating_sub(captured.len());
+                captured.extend_from_slice(&buffer[..read.min(remaining)]);
+                if read > remaining && !exceeded.swap(true, Ordering::AcqRel) {
                     let _ = events.send(ProcessEvent::OutputLimit);
                 }
             }
-        }
-    })
+        })();
+        let _ = events.send(ProcessEvent::Stream { stream, output });
+    });
 }
 
-fn join_reader(
-    reader: thread::JoinHandle<io::Result<Vec<u8>>>,
+fn store_stream_output(
+    stream: ProcessStream,
+    output: io::Result<Vec<u8>>,
     purpose: &str,
-) -> Result<Vec<u8>, ProcessError> {
-    reader
-        .join()
-        .map_err(|_| ProcessError::Capture {
-            purpose: purpose.to_owned(),
-            message: "output reader panicked".to_owned(),
-        })?
-        .map_err(|error| ProcessError::Capture {
-            purpose: purpose.to_owned(),
-            message: error.to_string(),
-        })
+    stdout: &mut Option<Vec<u8>>,
+    stderr: &mut Option<Vec<u8>>,
+) -> Result<(), ProcessError> {
+    let output = output.map_err(|error| ProcessError::Capture {
+        purpose: purpose.to_owned(),
+        message: error.to_string(),
+    })?;
+    match stream {
+        ProcessStream::Stdout => *stdout = Some(output),
+        ProcessStream::Stderr => *stderr = Some(output),
+    }
+    Ok(())
 }
 
 #[cfg(unix)]
@@ -442,5 +420,26 @@ mod tests {
         )
         .expect_err("flooding process must exceed its output limit");
         assert!(matches!(error, ProcessError::OutputLimit { .. }));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn subprocess_timeout_includes_descendant_pipe_draining() {
+        let mut command = Command::new("sh");
+        command.args(["-c", "sleep 30 &"]);
+        let started = std::time::Instant::now();
+
+        let error = run_with_limits(
+            &mut command,
+            "descendant pipe probe".to_owned(),
+            Limits {
+                timeout: Duration::from_millis(50),
+                stream_bytes: 1024,
+            },
+        )
+        .expect_err("pipe-holding descendant must time out");
+
+        assert!(matches!(error, ProcessError::Timeout { .. }));
+        assert!(started.elapsed() < Duration::from_secs(2));
     }
 }

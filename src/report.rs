@@ -239,6 +239,7 @@ impl Report {
                 counts,
             })
             .collect();
+        disambiguate_sanitized_scope_labels(&mut self.packages);
         let scope_totals =
             self.packages
                 .iter()
@@ -439,6 +440,39 @@ fn scope_label(
                 .and_then(Path::to_str)
                 .unwrap_or(id);
             format!("{name} ({qualifier})")
+        }
+    }
+}
+
+fn disambiguate_sanitized_scope_labels(rows: &mut [ScopeRow]) {
+    let mut scopes_by_label = BTreeMap::<String, BTreeSet<ScopeId>>::new();
+    for row in rows.iter() {
+        scopes_by_label
+            .entry(sanitize_table_cell(&row.label))
+            .or_default()
+            .insert(row.scope.clone());
+    }
+    for row in rows {
+        let visible = sanitize_table_cell(&row.label);
+        if scopes_by_label
+            .get(&visible)
+            .is_some_and(|scopes| scopes.len() > 1)
+        {
+            row.label = format!("{visible} [{}]", encoded_scope_identity(&row.scope));
+        }
+    }
+}
+
+fn encoded_scope_identity(scope: &ScopeId) -> String {
+    match scope {
+        ScopeId::Root { .. } => "scope:root".to_owned(),
+        ScopeId::Package { id, .. } => {
+            let encoded = id
+                .as_bytes()
+                .iter()
+                .map(|byte| format!("{byte:02X}"))
+                .collect::<String>();
+            format!("scope:package:{encoded}")
         }
     }
 }

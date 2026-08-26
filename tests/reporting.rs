@@ -1,5 +1,6 @@
 //! End-to-end golden coverage for terminal tables, JSON, warnings, and report failures.
 
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -166,6 +167,32 @@ fn duplicate_package_names_receive_stable_table_qualifiers() {
     assert!(table.contains(" Total"));
     assert!(!table.contains('│'));
     assert!(table.ends_with("\n"));
+}
+
+#[cfg(unix)]
+#[test]
+fn package_qualifiers_remain_unique_after_sanitization() {
+    let root = TempDir::new().expect("create Root");
+    package_at(root.path().join("a\tb"), "duplicate", "pub fn tab() {}\n");
+    package_at(
+        root.path().join("a\\tb"),
+        "duplicate",
+        "pub fn escaped() {}\n",
+    );
+
+    let first = run(root.path(), std::iter::empty::<&str>());
+    let second = run(root.path(), std::iter::empty::<&str>());
+    assert_success(&first);
+    assert_success(&second);
+    assert_eq!(first.stdout, second.stdout, "table must be deterministic");
+
+    let table = String::from_utf8(first.stdout).expect("UTF-8 table");
+    let visible_labels = table
+        .lines()
+        .filter(|line| line.contains(r"duplicate (a\tb)"))
+        .map(|line| line.split('┆').next().expect("package cell").trim())
+        .collect::<BTreeSet<_>>();
+    assert_eq!(visible_labels.len(), 2);
 }
 
 #[cfg(unix)]

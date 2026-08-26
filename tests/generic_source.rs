@@ -58,6 +58,32 @@ fn assigns_candidates_to_deepest_selected_package_and_retains_bytes() {
 }
 
 #[test]
+fn selected_package_without_retained_targets_owns_generic_files() {
+    let root = TempDir::new().expect("create Root");
+    package(root.path().join("app"), "app");
+    write(
+        root.path().join("app/web/app.js"),
+        "const targetless = true;\n",
+    );
+
+    let inventory = discover(
+        &configured(
+            root.path(),
+            [selected_package(root.path().join("app"), "app", false)],
+        ),
+        candidate,
+    )
+    .expect("discover targetless selected package source");
+
+    assert_eq!(inventory.packages.len(), 1);
+    assert_eq!(inventory.packages[0].name, "app");
+    assert_eq!(
+        relative_paths(root.path(), &inventory.packages[0].files),
+        BTreeSet::from(["app/web/app.js".to_owned()])
+    );
+}
+
+#[test]
 fn honors_root_local_ignores_and_only_structural_exclusions() {
     let root = TempDir::new().expect("create Root");
     package(root.path().join("active"), "active");
@@ -78,10 +104,7 @@ fn honors_root_local_ignores_and_only_structural_exclusions() {
     let inventory = discover(
         &configured(
             root.path(),
-            [
-                selected_package(root.path().join("active"), "active", true),
-                selected_package(root.path().join("inactive"), "inactive", false),
-            ],
+            [selected_package(root.path().join("active"), "active", true)],
         ),
         candidate,
     )

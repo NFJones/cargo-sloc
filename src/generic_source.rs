@@ -231,7 +231,6 @@ pub(crate) fn discover_root_with_cache(
             project
                 .packages
                 .iter()
-                .filter(|package| !package.targets.is_empty())
                 .map(|package| PackageOwner::new(&project.root, package))
         })
         .collect::<Result<Vec<_>, AppError>>()?;

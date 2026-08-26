@@ -179,6 +179,56 @@ fn cargo_metadata_time_and_output_are_bounded() {
     }
 }
 
+#[cfg(unix)]
+#[test]
+fn authoritative_metadata_runs_from_the_resolved_project_root() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let workspace = TempDir::new().expect("create workspace");
+    write(
+        workspace.path().join("Cargo.toml"),
+        "[workspace]\nmembers = [\"member\"]\nresolver = \"3\"\n",
+    );
+    package(workspace.path().join("member"), "member");
+    let wrapper = workspace.path().join("cargo-wrapper.sh");
+    let log = workspace.path().join("metadata-cwds.txt");
+    write(
+        wrapper.clone(),
+        "#!/bin/sh\nif [ \"$1\" = metadata ]; then pwd -P >> \"$CARGO_SLOC_METADATA_CWDS\"; fi\nexec \"$REAL_CARGO\" \"$@\"\n",
+    );
+    fs::set_permissions(&wrapper, fs::Permissions::from_mode(0o755))
+        .expect("make Cargo wrapper executable");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_cargo-sloc"))
+        .arg(workspace.path().join("member"))
+        .env("CARGO", &wrapper)
+        .env("REAL_CARGO", env!("CARGO"))
+        .env("CARGO_SLOC_METADATA_CWDS", &log)
+        .output()
+        .expect("run cargo-sloc through cwd wrapper");
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let member = workspace
+        .path()
+        .join("member")
+        .canonicalize()
+        .expect("canonical member");
+    let project = workspace
+        .path()
+        .canonicalize()
+        .expect("canonical workspace");
+    let observed = fs::read_to_string(log)
+        .expect("read metadata cwd log")
+        .lines()
+        .map(PathBuf::from)
+        .collect::<Vec<_>>();
+    assert_eq!(observed, [member, project]);
+}
+
 #[test]
 fn default_inventory_contains_every_target_kind_and_build_script() {
     let root = target_fixture();

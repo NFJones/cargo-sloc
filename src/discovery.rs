@@ -139,12 +139,17 @@ pub fn discover(selection: &Selection) -> Result<Inventory, AppError> {
         if known_manifests.contains(&manifest) {
             continue;
         }
-        let loaded = load_metadata(&manifest, selection.root.as_path())?;
-        let project_root = canonical_path(loaded.metadata.workspace_root.as_std_path())?;
+        let bootstrap = load_metadata(&manifest, selection.root.as_path())?;
+        let project_root = canonical_path(bootstrap.metadata.workspace_root.as_std_path())?;
         if let std::collections::btree_map::Entry::Vacant(entry) =
             projects.entry(project_root.clone())
         {
             let project_manifest = project_root.join("Cargo.toml");
+            let loaded = if manifest == project_manifest {
+                bootstrap
+            } else {
+                load_metadata(&project_manifest, &project_root)?
+            };
             for package in loaded.metadata.workspace_packages() {
                 known_manifests.insert(canonical_path(package.manifest_path.as_std_path())?);
             }

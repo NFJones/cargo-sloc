@@ -16,13 +16,12 @@ fn table_renders_package_counts_and_total_exactly() {
     assert!(output.stderr.is_empty());
     assert_eq!(
         String::from_utf8(output.stdout).expect("UTF-8 table"),
-        " Package  ┆ Language ┆ Files ┆ Total ┆ Lines ┆ Blanks ┆ Comments ┆ Code ┆ Test \n\
-         ══════════╪══════════╪═══════╪═══════╪═══════╪════════╪══════════╪══════╪══════\n\
-         \x20ordinary ┆ TOML     ┆     1 ┆     4 ┆     4 ┆      0 ┆        0 ┆    4 ┆  n/a \n\
-         ╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌┼╌╌╌╌╌╌\n\
-         \x20         ┆ Rust     ┆     1 ┆     3 ┆     3 ┆      1 ┆        1 ┆    1 ┆    0 \n\
-         ╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌┼╌╌╌╌╌╌\n\
-         \x20Total    ┆ All      ┆     2 ┆     7 ┆     7 ┆      1 ┆        1 ┆    5 ┆    0 \n"
+        " Package  ┆ Language ┆ Files ┆ Lines ┆ Blanks ┆ Comments ┆ Code ┆ Test \n\
+         ══════════╪══════════╪═══════╪═══════╪════════╪══════════╪══════╪══════\n\
+         \x20ordinary ┆ TOML     ┆     1 ┆     4 ┆      0 ┆        0 ┆    4 ┆  n/a \n\
+         \x20         ┆ Rust     ┆     1 ┆     3 ┆      1 ┆        1 ┆    1 ┆    0 \n\
+         ╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌┼╌╌╌╌╌╌\n\
+         \x20Total    ┆ All      ┆     2 ┆     7 ┆      1 ┆        1 ┆    5 ┆    0 \n"
     );
 }
 
@@ -307,9 +306,9 @@ fn valid_features_survive_an_empty_target_selection() {
     assert_success(&table);
     assert_eq!(
         String::from_utf8(table.stdout).expect("UTF-8 table"),
-        " Package ┆ Language ┆ Files ┆ Total ┆ Lines ┆ Blanks ┆ Comments ┆ Code ┆ Test \n\
-         ═════════╪══════════╪═══════╪═══════╪═══════╪════════╪══════════╪══════╪══════\n\
-         \x20Total   ┆ All      ┆     0 ┆     0 ┆     0 ┆      0 ┆        0 ┆    0 ┆    0 \n"
+        " Package ┆ Language ┆ Files ┆ Lines ┆ Blanks ┆ Comments ┆ Code ┆ Test \n\
+         ═════════╪══════════╪═══════╪═══════╪════════╪══════════╪══════╪══════\n\
+         \x20Total   ┆ All      ┆     0 ┆     0 ┆      0 ┆        0 ┆    0 ┆    0 \n"
     );
 
     let json = run(

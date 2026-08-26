@@ -1022,7 +1022,7 @@ A deterministic UTF-8 terminal table MUST be the default output format.
 Successful default output MUST contain these columns in this order:
 
 ```text
-Package, Language, Files, Total, Lines, Blanks, Comments, Code, Test
+Package, Language, Files, Lines, Blanks, Comments, Code, Test
 ```
 
 There MUST be one row for each resolved Scope and supported language pair with
@@ -1036,7 +1036,9 @@ the Scope label; subsequent language rows for the same Scope MUST leave the
 cell empty. Printable text, including pipe characters and backslashes, MUST be
 preserved. Embedded line breaks, tabs, escape characters, and other control
 characters MUST be represented visibly rather than emitted as raw terminal
-controls.
+controls. Horizontal dividers MUST separate the header, Scope sections, and
+the final Total row, but MUST NOT appear between language rows in the same
+Scope.
 
 `Total` is the number of included physical lines for the Scope/language row;
 it is equivalent to `Lines` and provides the sortable total LOC measure without

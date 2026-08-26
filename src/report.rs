@@ -286,7 +286,6 @@ impl Report {
                 text_cell("Package"),
                 text_cell("Language"),
                 numeric_cell("Files"),
-                numeric_cell("Total"),
                 numeric_cell("Lines"),
                 numeric_cell("Blanks"),
                 numeric_cell("Comments"),
@@ -321,6 +320,7 @@ impl Report {
         table.add_row(report_table_row("Total", "All", table_total));
 
         let mut output = table.to_string();
+        output = remove_intra_scope_dividers(output, &self.packages);
         while output.ends_with('\n') {
             output.pop();
         }
@@ -388,6 +388,42 @@ impl Report {
     }
 }
 
+fn remove_intra_scope_dividers(mut table: String, packages: &[ScopeRow]) -> String {
+    let mut lines = table.lines();
+    let mut output = String::new();
+    if let Some(header) = lines.next() {
+        output.push_str(header);
+        output.push('\n');
+    }
+    if let Some(header_divider) = lines.next() {
+        output.push_str(header_divider);
+        output.push('\n');
+    }
+
+    for (index, _) in packages.iter().enumerate() {
+        if let Some(row) = lines.next() {
+            output.push_str(row);
+            output.push('\n');
+        }
+        let divider = lines.next();
+        if packages
+            .get(index + 1)
+            .is_none_or(|next| next.scope != packages[index].scope)
+            && let Some(divider) = divider
+        {
+            output.push_str(divider);
+            output.push('\n');
+        }
+    }
+
+    for line in lines {
+        output.push_str(line);
+        output.push('\n');
+    }
+    table = output;
+    table
+}
+
 fn scope_label(
     selection: &Selection,
     scope: &ScopeId,
@@ -423,7 +459,6 @@ fn report_table_row(label: &str, language: &str, counts: Counts) -> Row {
         text_cell(sanitize_table_cell(label)),
         text_cell(language),
         numeric_cell(counts.files),
-        numeric_cell(counts.lines),
         numeric_cell(counts.lines),
         numeric_cell(counts.blanks),
         numeric_cell(counts.comments),
@@ -704,9 +739,11 @@ mod tests {
         assert!(table.contains(" mixed   ┆ TypeScript ┆"));
         assert!(table.contains("         ┆ Rust       ┆"));
         assert!(!table.contains("mixed ("));
-        assert!(table.contains(
-            " Total   ┆ All        ┆     2 ┆     7 ┆     7 ┆      0 ┆        1 ┆    5 ┆    1 "
-        ));
+        assert!(
+            table.contains(
+                " Total   ┆ All        ┆     2 ┆     7 ┆      0 ┆        1 ┆    5 ┆    1 "
+            )
+        );
         assert!(table.lines().filter(|line| line.ends_with(" n/a ")).count() == 1);
     }
 

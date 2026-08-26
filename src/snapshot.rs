@@ -953,7 +953,7 @@ fn hash_preparation_tree(root: &Path, path: &Path, state: &mut Digest) -> io::Re
     let mut entries = fs::read_dir(path)?.collect::<Result<Vec<_>, _>>()?;
     entries.sort_by_key(fs::DirEntry::file_name);
     for entry in entries {
-        if excluded_directory(&entry) {
+        if excluded_preparation_directory(&entry) {
             continue;
         }
         hash_preparation_tree(root, &entry.path(), state)?;
@@ -1040,10 +1040,13 @@ fn hash_external(
 
 fn excluded_directory(entry: &fs::DirEntry) -> bool {
     entry.file_type().is_ok_and(|kind| kind.is_dir())
-        && matches!(
-            entry.file_name().to_str(),
-            Some(".git" | "target" | ".cargo-sloc")
-        )
+        && matches!(entry.file_name().to_str(), Some(".git" | ".cargo-sloc"))
+}
+
+fn excluded_preparation_directory(entry: &fs::DirEntry) -> bool {
+    excluded_directory(entry)
+        || (entry.file_type().is_ok_and(|kind| kind.is_dir())
+            && entry.file_name() == OsStr::new("target"))
 }
 
 fn hash_file(path: &Path, state: &mut Digest) -> io::Result<()> {
@@ -1380,6 +1383,39 @@ mod tests {
     }
 
     #[test]
+    fn target_source_changes_invalidate_persistent_snapshots() {
+        let root = package("snapshot-target-source");
+        let cache = tempfile::tempdir().expect("create snapshot cache");
+        fs::create_dir_all(root.path().join("target")).expect("create target directory");
+        fs::write(
+            root.path().join("target/generated.js"),
+            "const generated = true;\n",
+        )
+        .expect("write generated target source");
+        let selection = selection(root.path());
+
+        let cold = measured(|| run_with_cache(selection.clone(), cache.path()));
+        assert_eq!(cold.output.exit_code, 0);
+        let warm = measured(|| run_with_cache(selection.clone(), cache.path()));
+        assert_eq!(warm.output, cold.output);
+        assert_eq!(warm.metrics.caches.snapshot_hits, 1);
+
+        fs::write(
+            root.path().join("target/generated.js"),
+            "const generated = true;\nconst edited = true;\n",
+        )
+        .expect("edit generated target source");
+        let edited = measured(|| run_with_cache(selection.clone(), cache.path()));
+
+        assert_eq!(edited.output.exit_code, 0);
+        assert_eq!(edited.metrics.caches.snapshot_hits, 0);
+        assert_eq!(edited.metrics.caches.preparation_hits, 1);
+        assert_eq!(edited.metrics.subprocesses, 0);
+        assert_ne!(edited.output.stdout, warm.output.stdout);
+        assert_eq!(edited.output, crate::app::execute(selection));
+    }
+
+    #[test]
     fn default_cache_root_is_under_home_cache() {
         let cache = cache_root();
         assert_eq!(cache.file_name(), Some(OsStr::new(CACHE_DIRECTORY)));
@@ -1669,6 +1705,46 @@ mod tests {
         assert_eq!(edited.metrics.caches.generic_source_misses, 1);
         assert_eq!(edited.metrics.caches.generic_accounting_hits, 2);
         assert_eq!(edited.metrics.caches.generic_accounting_misses, 1);
+        assert_ne!(edited.output.stdout, warm.output.stdout);
+        assert_eq!(edited.output, crate::app::execute(selection));
+    }
+
+    #[test]
+    fn target_source_changes_invalidate_resident_snapshots() {
+        let root = package("resident-target-source");
+        fs::create_dir_all(root.path().join("target")).expect("create target directory");
+        fs::write(
+            root.path().join("target/generated.js"),
+            "const generated = true;\n",
+        )
+        .expect("write generated target source");
+        let selection = selection(root.path());
+        let mut session = ResidentSession::from_selection(selection.clone());
+
+        let cold = session.refresh_with_metrics();
+        assert_eq!(cold.output.exit_code, 0);
+        let warm = session.refresh_with_metrics();
+        assert_eq!(warm.output, cold.output);
+        assert_eq!(warm.metrics.caches.snapshot_hits, 1);
+
+        fs::write(
+            root.path().join("target/generated.js"),
+            "const generated = true;\nconst edited = true;\n",
+        )
+        .expect("edit generated target source");
+        let edited = session.refresh_with_metrics();
+
+        assert_eq!(edited.output.exit_code, 0);
+        assert_eq!(edited.metrics.caches.snapshot_hits, 0);
+        assert_eq!(edited.metrics.subprocesses, 0);
+        assert_eq!(
+            edited
+                .metrics
+                .caches
+                .outcomes
+                .get("snapshot.miss.resident-source-changed"),
+            Some(&1)
+        );
         assert_ne!(edited.output.stdout, warm.output.stdout);
         assert_eq!(edited.output, crate::app::execute(selection));
     }

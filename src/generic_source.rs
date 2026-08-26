@@ -77,6 +77,16 @@ pub struct FileRecord {
     pub disposition: FileDisposition,
 }
 
+impl FileRecord {
+    pub(crate) fn merge_alias(&mut self, path: PathBuf, containing_packages: BTreeSet<String>) {
+        self.aliases.insert(path.clone());
+        if path <= self.representative_path {
+            self.representative_path = path;
+            self.containing_packages = containing_packages;
+        }
+    }
+}
+
 /// Generic source candidates owned by one selected Cargo Package.
 #[derive(Clone, Debug)]
 pub struct GenericPackageSources {
@@ -311,11 +321,7 @@ pub(crate) fn discover_root_with_cache(
             .map(|owner| owner.package.id.clone())
             .collect::<BTreeSet<_>>();
         if let Some(record) = records.get_mut(&identity) {
-            record.aliases.insert(path.to_path_buf());
-            record.containing_packages.extend(containing_packages);
-            if path < record.representative_path.as_path() {
-                record.representative_path = path.to_path_buf();
-            }
+            record.merge_alias(path.to_path_buf(), containing_packages);
             continue;
         }
         match cache.load(path, &canonical) {

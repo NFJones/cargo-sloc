@@ -154,11 +154,7 @@ fn reconcile_rust_claims(
                 .map(|package| package.package.id.clone())
                 .collect::<BTreeSet<_>>();
             if let Some(record) = records.get_mut(identity) {
-                record.aliases.insert(path.clone());
-                record.containing_packages.extend(containing_packages);
-                if path < &record.representative_path {
-                    record.representative_path = path.clone();
-                }
+                record.merge_alias(path.clone(), containing_packages);
             } else {
                 records.insert(
                     identity.clone(),
@@ -553,6 +549,54 @@ mod tests {
         assert!(matches!(shared[0].scope, ScopeId::Root { .. }));
         assert_eq!(shared[0].counts.files, 1);
         assert_eq!(shared[0].counts.lines, 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn hard_link_scope_comes_from_the_representative_alias() {
+        let root = TempDir::new().expect("create Root");
+        write(
+            root.path().join("Cargo.toml"),
+            "[workspace]\nmembers = [\"a\", \"z/nested\"]\nresolver = \"3\"\n",
+        );
+        package(root.path().join("a"), "a", "pub fn a() {}\n");
+        package(
+            root.path().join("z/nested"),
+            "nested",
+            "pub fn nested() {}\n",
+        );
+        write(root.path().join("a/source.js"), "const shared = true;\n");
+        fs::hard_link(
+            root.path().join("a/source.js"),
+            root.path().join("z/nested/source.js"),
+        )
+        .expect("create cross-package hard link");
+
+        let (configured, sources, inventory) = pipeline(root.path());
+        let identity = physical_identity_for_path(&root.path().join("a/source.js"))
+            .expect("shared physical identity");
+        let record = inventory
+            .root
+            .files
+            .iter()
+            .find(|record| record.identity == identity)
+            .expect("shared ledger record");
+        assert_eq!(record.representative_path, root.path().join("a/source.js"));
+        let mut cache = crate::tokei_accounting::AccountingCache::default();
+
+        let accounting = resolve(&configured, &sources, &inventory, &mut cache)
+            .expect("resolve cross-package hard link");
+        let contribution = accounting
+            .contributions
+            .iter()
+            .find(|contribution| contribution.identity == identity)
+            .expect("shared contribution");
+
+        assert!(matches!(
+            contribution.scope,
+            ScopeId::Package { ref name, .. } if name == "a"
+        ));
+        assert_eq!(contribution.counts.files, 1);
     }
 
     #[cfg(unix)]

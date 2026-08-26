@@ -62,6 +62,20 @@ fn malformed_nonignored_candidate_is_fatal() {
 }
 
 #[test]
+fn root_dot_ignore_excludes_malformed_candidate_manifest() {
+    let root = TempDir::new().expect("create Root");
+    package(root.path().join("valid"), "valid");
+    write(root.path().join(".ignore"), "ignored/\n");
+    write(
+        root.path().join("ignored/Cargo.toml"),
+        "this is deliberately malformed",
+    );
+
+    let inventory = discover(root.path(), []);
+    assert_eq!(package_names(&inventory), ["valid"]);
+}
+
+#[test]
 fn package_selectors_and_workspace_exclusions_apply_across_projects() {
     let root = TempDir::new().expect("create Root");
     write(

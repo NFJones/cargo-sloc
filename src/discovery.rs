@@ -241,7 +241,7 @@ fn candidate_manifests(root: &Path) -> Result<Vec<PathBuf>, AppError> {
         .standard_filters(false)
         .hidden(false)
         .parents(false)
-        .ignore(false)
+        .ignore(true)
         .git_ignore(true)
         .git_global(false)
         .git_exclude(false)

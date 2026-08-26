@@ -330,6 +330,29 @@ fn plural_test_and_bench_selectors_honor_manifest_flags() {
 }
 
 #[test]
+fn implicit_library_is_bench_enabled_unless_explicitly_disabled() {
+    let root = TempDir::new().expect("create Root");
+    write(
+        root.path().join("Cargo.toml"),
+        "[package]\nname = \"implicit-bench\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
+    );
+    write(root.path().join("src/lib.rs"), "pub fn library() {}\n");
+
+    let implicit = discover(root.path(), ["--benches"]);
+    let targets = &implicit.projects[0].packages[0].targets;
+    assert_eq!(targets.len(), 1);
+    assert_eq!(targets[0].kind, TargetKind::Lib);
+    assert_eq!(targets[0].contexts, BTreeSet::from([TargetContext::Bench]));
+
+    write(
+        root.path().join("Cargo.toml"),
+        "[package]\nname = \"implicit-bench\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\n[lib]\nbench = false\n",
+    );
+    let disabled = discover(root.path(), ["--benches"]);
+    assert!(disabled.projects[0].packages[0].targets.is_empty());
+}
+
+#[test]
 fn out_of_root_path_dependencies_are_not_inventory_packages() {
     let parent = TempDir::new().expect("create parent");
     let root = parent.path().join("root");

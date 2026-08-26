@@ -93,6 +93,8 @@ impl SemanticContextKey {
 pub struct ReachableSource {
     /// Canonical identity, or a normalized absolute fallback.
     pub path: PathBuf,
+    /// Validated source bytes retained from parsing for inventory reconciliation.
+    pub(crate) bytes: Arc<[u8]>,
     /// Interned semantic contexts in which this file is reachable.
     pub contexts: BTreeSet<SemanticContextId>,
     /// Owned analysis keyed by Rust edition.
@@ -256,6 +258,7 @@ fn discover_package(
             .entry(identity.clone())
             .or_insert_with(|| ReachableSource {
                 path: identity.clone(),
+                bytes: Arc::clone(&parsed.bytes),
                 contexts: BTreeSet::new(),
                 analyses: BTreeMap::new(),
                 evaluations: BTreeMap::new(),

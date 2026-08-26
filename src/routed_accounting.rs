@@ -6,6 +6,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::thread;
 
 use crate::accountant::{
@@ -13,7 +14,9 @@ use crate::accountant::{
 };
 use crate::configuration::{ConfiguredInventory, ConfiguredPackage};
 use crate::error::AppError;
-use crate::generic_source::{GenericSourceInventory, PhysicalFileId, physical_identity_for_path};
+use crate::generic_source::{
+    FileDisposition, FileRecord, GenericSourceInventory, PhysicalFileId, physical_identity_for_path,
+};
 use crate::rust_source::{PackageSources, ReachableSource, SourceInventory};
 
 /// Fully validated per-file accounting for one invocation.
@@ -57,9 +60,8 @@ pub(crate) fn resolve(
 ) -> Result<RoutedAccounting, AppError> {
     let packages = package_info(configured)?;
     let claims = rust_claims(sources)?;
-    let ledger_ids = inventory
-        .root
-        .files
+    let records = reconcile_rust_claims(inventory, &claims, &packages);
+    let ledger_ids = records
         .iter()
         .map(|record| record.identity.clone())
         .collect::<BTreeSet<_>>();
@@ -73,7 +75,7 @@ pub(crate) fn resolve(
 
     let mut rust_work = Vec::new();
     let mut generic_work = Vec::new();
-    for record in &inventory.root.files {
+    for record in &records {
         let file_claims = claims
             .get(&record.identity)
             .map(Vec::as_slice)
@@ -126,6 +128,55 @@ pub(crate) fn resolve(
     contributions.sort_by(|left, right| left.identity.cmp(&right.identity));
     validate_partition(&ledger_ids, &contributions)?;
     Ok(RoutedAccounting { contributions })
+}
+
+fn reconcile_rust_claims(
+    inventory: &GenericSourceInventory,
+    claims: &BTreeMap<PhysicalFileId, Vec<RustClaim<'_>>>,
+    packages: &[PackageInfo<'_>],
+) -> Vec<FileRecord> {
+    let mut records = inventory
+        .root
+        .files
+        .iter()
+        .cloned()
+        .map(|record| (record.identity.clone(), record))
+        .collect::<BTreeMap<_, _>>();
+    for (identity, file_claims) in claims {
+        for claim in file_claims {
+            let path = &claim.source.path;
+            if !path.starts_with(&inventory.root.root) {
+                continue;
+            }
+            let containing_packages = packages
+                .iter()
+                .filter(|package| path.starts_with(&package.root))
+                .map(|package| package.package.id.clone())
+                .collect::<BTreeSet<_>>();
+            if let Some(record) = records.get_mut(identity) {
+                record.aliases.insert(path.clone());
+                record.containing_packages.extend(containing_packages);
+                if path < &record.representative_path {
+                    record.representative_path = path.clone();
+                }
+            } else {
+                records.insert(
+                    identity.clone(),
+                    FileRecord {
+                        identity: identity.clone(),
+                        representative_path: path.clone(),
+                        aliases: BTreeSet::from([path.clone()]),
+                        containing_packages,
+                        bytes: Arc::clone(&claim.source.bytes),
+                        disposition: FileDisposition::Pending,
+                    },
+                );
+            }
+        }
+    }
+    let mut records = records.into_values().collect::<Vec<_>>();
+    records.sort_by(|left, right| left.representative_path.cmp(&right.representative_path));
+    records
 }
 
 fn account_rust_work(
@@ -417,6 +468,55 @@ mod tests {
 
         assert_eq!(orphan.route, AccountingRoute::UnconfiguredRust);
         assert_eq!(orphan.counts.test, TestCount::Unavailable);
+    }
+
+    #[test]
+    fn reachable_ignored_rust_module_is_reconciled_into_root_inventory() {
+        let root = TempDir::new().expect("create Root");
+        package(
+            root.path().to_path_buf(),
+            "ignored-module",
+            "mod helper;\npub fn library() {}\n",
+        );
+        write(
+            root.path().join(".ignore"),
+            "src/helper.rs\nsrc/unused.rs\n",
+        );
+        write(root.path().join("src/helper.rs"), "pub fn helper() {}\n");
+        write(root.path().join("src/unused.rs"), "pub fn unused() {}\n");
+
+        let (configured, sources, inventory) = pipeline(root.path());
+        let identity = physical_identity_for_path(&root.path().join("src/helper.rs"))
+            .expect("ignored helper physical identity");
+        let unused_identity = physical_identity_for_path(&root.path().join("src/unused.rs"))
+            .expect("ignored unused physical identity");
+        assert!(
+            inventory
+                .root
+                .files
+                .iter()
+                .all(|record| record.identity != identity && record.identity != unused_identity)
+        );
+        let mut cache = crate::tokei_accounting::AccountingCache::default();
+
+        let accounting = resolve(&configured, &sources, &inventory, &mut cache)
+            .expect("resolve reachable ignored Rust module");
+        let contributions = accounting
+            .contributions
+            .iter()
+            .filter(|contribution| contribution.identity == identity)
+            .collect::<Vec<_>>();
+
+        assert_eq!(contributions.len(), 1);
+        assert_eq!(contributions[0].route, AccountingRoute::ConfiguredRust);
+        assert_eq!(contributions[0].counts.files, 1);
+        assert_eq!(contributions[0].counts.lines, 1);
+        assert!(
+            accounting
+                .contributions
+                .iter()
+                .all(|contribution| contribution.identity != unused_identity)
+        );
     }
 
     #[test]

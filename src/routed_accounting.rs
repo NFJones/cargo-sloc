@@ -84,16 +84,14 @@ pub(crate) fn resolve(
             file_claims,
             &packages,
         )?;
-        if is_rust(&record.representative_path) {
-            if file_claims.is_empty() {
-                rust_work.push(RustWork::Unconfigured { record, scope });
-            } else {
-                rust_work.push(RustWork::Configured {
-                    record,
-                    scope,
-                    claims: file_claims.to_vec(),
-                });
-            }
+        if !file_claims.is_empty() {
+            rust_work.push(RustWork::Configured {
+                record,
+                scope,
+                claims: file_claims.to_vec(),
+            });
+        } else if is_rust(&record.representative_path) {
+            rust_work.push(RustWork::Unconfigured { record, scope });
         } else {
             generic_work.push((record, scope));
         }
@@ -455,6 +453,44 @@ mod tests {
         assert!(matches!(shared[0].scope, ScopeId::Root { .. }));
         assert_eq!(shared[0].counts.files, 1);
         assert_eq!(shared[0].counts.lines, 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn configured_rust_claim_overrides_non_rust_hard_link_representative() {
+        let root = TempDir::new().expect("create Root");
+        package(
+            root.path().to_path_buf(),
+            "hard-linked-rust",
+            "pub fn library() {}\n",
+        );
+        fs::hard_link(root.path().join("src/lib.rs"), root.path().join("a.py"))
+            .expect("create non-Rust hard-link alias");
+
+        let (configured, sources, inventory) = pipeline(root.path());
+        let identity = physical_identity_for_path(&root.path().join("src/lib.rs"))
+            .expect("hard-linked Rust physical identity");
+        let record = inventory
+            .root
+            .files
+            .iter()
+            .find(|record| record.identity == identity)
+            .expect("hard-linked source ledger record");
+        assert_eq!(record.representative_path, root.path().join("a.py"));
+        let mut cache = crate::tokei_accounting::AccountingCache::default();
+
+        let accounting = resolve(&configured, &sources, &inventory, &mut cache)
+            .expect("resolve hard-linked Rust accounting");
+        let contributions = accounting
+            .contributions
+            .iter()
+            .filter(|contribution| contribution.identity == identity)
+            .collect::<Vec<_>>();
+
+        assert_eq!(contributions.len(), 1);
+        assert_eq!(contributions[0].route, AccountingRoute::ConfiguredRust);
+        assert_eq!(contributions[0].language, LanguageId::RUST);
+        assert_eq!(contributions[0].counts.files, 1);
     }
 
     #[test]

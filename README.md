@@ -112,7 +112,7 @@ The default report is a deterministic terminal table:
 ╌╌╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌┼╌╌╌╌╌╌
             ┆ YAML                ┆     1 ┆    41 ┆      5 ┆        0 ┆   36 ┆  n/a
 ╌╌╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌┼╌╌╌╌╌╌
- Total      ┆ All                 ┆    52 ┆ 15814 ┆   1384 ┆     1902 ┆ 7443 ┆ 5085
+ Total      ┆ All                 ┆    52 ┆ 15814 ┆   1384 ┆     1902 ┆ 7443 ┆  n/a
 ```
 
 Rows aggregate a scope (a Cargo package or `<root>`) and language. The columns
@@ -126,8 +126,8 @@ mean:
 - **Test:** Rust lines active only for test or benchmark targets.
 
 Lexically counted languages show `n/a` for **Test** because that provenance is
-not available. The table's final Test total sums the rows with known Test
-counts. JSON represents unavailable per-row Test counts as `null`. Output is
+not available. The table's final Test total is also `n/a` if any row has
+unavailable provenance. JSON represents unavailable Test counts as `null`. Output is
 deterministic, unstyled, and safe to redirect; use `--json` for machine-readable
 output.
 

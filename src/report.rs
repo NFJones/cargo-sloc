@@ -306,18 +306,7 @@ impl Report {
             ));
             previous_scope = Some(row.scope.clone());
         }
-        let table_total = Counts {
-            test: TestCount::Known(self.packages.iter().try_fold(0_u64, |total, row| {
-                match row.counts.test {
-                    TestCount::Known(value) => total.checked_add(value).ok_or(
-                        AppError::CountOverflow("adding available table test counts"),
-                    ),
-                    TestCount::Unavailable => Ok(total),
-                }
-            })?),
-            ..self.total
-        };
-        table.add_row(report_table_row("Total", "All", table_total));
+        table.add_row(report_table_row("Total", "All", self.total));
 
         let mut output = table.to_string();
         output = remove_intra_scope_dividers(output, &self.packages);
@@ -741,10 +730,10 @@ mod tests {
         assert!(!table.contains("mixed ("));
         assert!(
             table.contains(
-                " Total   ┆ All        ┆     2 ┆     7 ┆      0 ┆        1 ┆    5 ┆    1 "
+                " Total   ┆ All        ┆     2 ┆     7 ┆      0 ┆        1 ┆    5 ┆  n/a "
             )
         );
-        assert!(table.lines().filter(|line| line.ends_with(" n/a ")).count() == 1);
+        assert!(table.lines().filter(|line| line.ends_with(" n/a ")).count() == 2);
     }
 
     #[test]

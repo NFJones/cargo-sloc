@@ -21,7 +21,7 @@ fn table_renders_package_counts_and_total_exactly() {
          \x20ordinary ┆ TOML     ┆     1 ┆     4 ┆      0 ┆        0 ┆    4 ┆  n/a \n\
          \x20         ┆ Rust     ┆     1 ┆     3 ┆      1 ┆        1 ┆    1 ┆    0 \n\
          ╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌┼╌╌╌╌╌╌\n\
-         \x20Total    ┆ All      ┆     2 ┆     7 ┆      1 ┆        1 ┆    5 ┆    0 \n"
+         \x20Total    ┆ All      ┆     2 ┆     7 ┆      1 ┆        1 ┆    5 ┆  n/a \n"
     );
 }
 
@@ -138,8 +138,8 @@ fn mixed_language_reports_merge_rust_extensions_and_shebang_sources() {
     assert!(table.contains("         ┆ Rust       "));
     assert_eq!(
         table.lines().filter(|line| line.ends_with(" n/a ")).count(),
-        3,
-        "only lexical rows have unavailable Test counts"
+        4,
+        "lexical rows and their aggregate have unavailable Test counts"
     );
 }
 

@@ -14,7 +14,7 @@ use crate::model::{Root, RootFilePolicy, Selection};
     name = "cargo-sloc",
     version,
     about = "Source line counts for supported files beneath a directory",
-    long_about = "Count supported, non-ignored source beneath PATH. Reachable package Rust receives configuration-aware accounting; other recognized files are retained under their Package or the Root scope.",
+    long_about = "Count supported, non-ignored source beneath PATH. By default, every eligible Package, all features, all package targets, and supported Root files are included. Reachable package Rust receives configuration-aware accounting; other recognized files are retained under their Package or the Root scope.",
     after_help = "Examples:\n  cargo sloc\n  cargo sloc ../workspace\n  cargo sloc --features serde,simd\n  cargo sloc --no-default-features --features serde\n  cargo sloc --root-files exclude\n  cargo sloc --json"
 )]
 struct Arguments {

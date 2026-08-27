@@ -176,6 +176,8 @@ fn help_and_version_exit_successfully_on_stdout() {
     assert_success(&help);
     let help_text = String::from_utf8(help.stdout).expect("UTF-8 help");
     assert!(help_text.contains("Count supported, non-ignored source beneath PATH"));
+    assert!(help_text.contains("By default, every eligible Package"));
+    assert!(help_text.contains("all features, all package targets, and supported Root files"));
     assert!(help_text.contains("--root-files <ROOT_FILES>"));
     assert!(help_text.contains("cargo sloc --no-default-features --features serde"));
     assert!(help_text.contains("Emit schema-version 3 JSON instead of the terminal table"));

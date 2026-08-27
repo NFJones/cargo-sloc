@@ -50,6 +50,9 @@ pub enum PhysicalFileId {
     /// Unix device and inode identity.
     #[cfg(unix)]
     Unix { device: u64, inode: u64 },
+    /// Windows volume serial number and stable file index identity.
+    #[cfg(windows)]
+    Windows { volume: u32, index: u64 },
     /// Canonical-path fallback on platforms without a stronger implementation.
     Canonical(PathBuf),
 }
@@ -497,13 +500,38 @@ fn physical_identity(path: &Path, _canonical: &Path) -> Result<PhysicalFileId, s
     })
 }
 
+#[cfg(windows)]
+fn physical_identity(path: &Path, _canonical: &Path) -> Result<PhysicalFileId, std::io::Error> {
+    use std::os::windows::io::AsRawHandle;
+
+    use windows_sys::Win32::Storage::FileSystem::{
+        BY_HANDLE_FILE_INFORMATION, GetFileInformationByHandle,
+    };
+
+    let file = std::fs::File::open(path)?;
+    let mut information = std::mem::MaybeUninit::<BY_HANDLE_FILE_INFORMATION>::zeroed();
+    // SAFETY: `file` keeps the raw handle valid and `information` points to writable storage.
+    let result = unsafe {
+        GetFileInformationByHandle(file.as_raw_handle() as isize, information.as_mut_ptr())
+    };
+    if result == 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    // SAFETY: a nonzero return value initialized the output structure.
+    let information = unsafe { information.assume_init() };
+    Ok(PhysicalFileId::Windows {
+        volume: information.dwVolumeSerialNumber,
+        index: (u64::from(information.nFileIndexHigh) << 32) | u64::from(information.nFileIndexLow),
+    })
+}
+
 /// Resolves the invocation-wide physical identity for an existing file.
 pub(crate) fn physical_identity_for_path(path: &Path) -> Result<PhysicalFileId, std::io::Error> {
     let canonical = path.canonicalize()?;
     physical_identity(path, &canonical)
 }
 
-#[cfg(not(unix))]
+#[cfg(not(any(unix, windows)))]
 fn physical_identity(_path: &Path, canonical: &Path) -> Result<PhysicalFileId, std::io::Error> {
     Ok(PhysicalFileId::Canonical(canonical.to_path_buf()))
 }

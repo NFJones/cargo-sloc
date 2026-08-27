@@ -233,7 +233,7 @@ fn honors_nested_ignore_files_and_negation_from_the_requested_root() {
     );
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[test]
 fn physical_identity_deduplicates_hard_links_globally() {
     let root = TempDir::new().expect("create Root");

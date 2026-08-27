@@ -216,7 +216,9 @@ fn wait_with_notifications(
         }
         let remaining = limits.timeout.saturating_sub(started.elapsed());
         if remaining.is_zero() {
-            terminate_process(process_id);
+            if status.is_none() {
+                terminate_process(process_id);
+            }
             return Err(ProcessError::Timeout {
                 purpose,
                 timeout: limits.timeout,
@@ -226,7 +228,9 @@ fn wait_with_notifications(
             Ok(ProcessEvent::Exited(result)) => match result {
                 Ok(exit_status) => status = Some(exit_status),
                 Err(source) => {
-                    terminate_process(process_id);
+                    if status.is_none() {
+                        terminate_process(process_id);
+                    }
                     return Err(ProcessError::Wait { purpose, source });
                 }
             },
@@ -234,21 +238,27 @@ fn wait_with_notifications(
                 store_stream_output(stream, output, &purpose, &mut stdout, &mut stderr)?;
             }
             Ok(ProcessEvent::OutputLimit) => {
-                terminate_process(process_id);
+                if status.is_none() {
+                    terminate_process(process_id);
+                }
                 return Err(ProcessError::OutputLimit {
                     purpose,
                     limit: limits.stream_bytes,
                 });
             }
             Err(RecvTimeoutError::Timeout) => {
-                terminate_process(process_id);
+                if status.is_none() {
+                    terminate_process(process_id);
+                }
                 return Err(ProcessError::Timeout {
                     purpose,
                     timeout: limits.timeout,
                 });
             }
             Err(RecvTimeoutError::Disconnected) => {
-                terminate_process(process_id);
+                if status.is_none() {
+                    terminate_process(process_id);
+                }
                 return Err(ProcessError::Capture {
                     purpose,
                     message: "subprocess wait channel disconnected".to_owned(),

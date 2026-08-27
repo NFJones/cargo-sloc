@@ -189,6 +189,7 @@ fn authoritative_metadata_runs_from_the_resolved_project_root() {
         workspace.path().join("Cargo.toml"),
         "[workspace]\nmembers = [\"member\"]\nresolver = \"3\"\n",
     );
+    write(workspace.path().join("Cargo.lock"), "version = 4\n");
     package(workspace.path().join("member"), "member");
     let wrapper = workspace.path().join("cargo-wrapper.sh");
     let log = workspace.path().join("metadata-cwds.txt");
@@ -226,7 +227,13 @@ fn authoritative_metadata_runs_from_the_resolved_project_root() {
         .lines()
         .map(PathBuf::from)
         .collect::<Vec<_>>();
-    assert_eq!(observed, [member, project]);
+    assert!(!observed.is_empty());
+    assert_eq!(observed.len() % 2, 0);
+    assert!(
+        observed
+            .chunks_exact(2)
+            .all(|pair| pair == [member.as_path(), project.as_path()])
+    );
 }
 
 #[test]

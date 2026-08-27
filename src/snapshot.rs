@@ -1100,6 +1100,8 @@ fn hash_ancestor_configuration(
 ) -> io::Result<()> {
     for ancestor in root.ancestors() {
         for path in [
+            ancestor.join("Cargo.toml"),
+            ancestor.join("Cargo.lock"),
             ancestor.join(".cargo/config.toml"),
             ancestor.join(".cargo/config"),
         ] {
@@ -1496,6 +1498,54 @@ mod tests {
                 1,
                 "input {}",
                 path.display()
+            );
+        }
+    }
+
+    #[test]
+    fn ancestor_workspace_manifests_and_locks_change_fingerprints() {
+        let parent = tempfile::tempdir().expect("create workspace parent");
+        let root = parent.path().join("member");
+        fs::create_dir_all(root.join("src")).expect("create member source directory");
+        fs::write(
+            parent.path().join("Cargo.toml"),
+            "[workspace]\nmembers = [\"member\"]\nresolver = \"3\"\n",
+        )
+        .expect("write workspace manifest");
+        fs::write(parent.path().join("Cargo.lock"), "# initial lock\n")
+            .expect("write workspace lockfile");
+        fs::write(
+            root.join("Cargo.toml"),
+            "[package]\nname = \"member\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
+        )
+        .expect("write member manifest");
+        fs::write(root.join("src/lib.rs"), "pub fn member() {}\n").expect("write member source");
+
+        let selection = selection(&root);
+        let cache = tempfile::tempdir().expect("create snapshot cache");
+        for path in [
+            parent.path().join("Cargo.toml"),
+            parent.path().join("Cargo.lock"),
+        ] {
+            let input_before =
+                input_fingerprint(&selection, cache.path()).expect("first input fingerprint");
+            let preparation_before =
+                preparation_fingerprint(&selection).expect("first preparation fingerprint");
+            fs::write(
+                &path,
+                format!(
+                    "{}# changed\n",
+                    fs::read_to_string(&path).expect("read workspace input")
+                ),
+            )
+            .expect("change workspace input");
+            assert_ne!(
+                input_before,
+                input_fingerprint(&selection, cache.path()).expect("changed input fingerprint")
+            );
+            assert_ne!(
+                preparation_before,
+                preparation_fingerprint(&selection).expect("changed preparation fingerprint")
             );
         }
     }

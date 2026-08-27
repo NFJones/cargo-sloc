@@ -76,6 +76,16 @@ pub(crate) fn resolve(
             file_claims,
             &packages,
         )?;
+        if matches!(
+            scope,
+            ScopeId::Package { ref id, .. }
+                if packages
+                    .iter()
+                    .any(|package| package.package.id == *id && package.package.targets.is_empty())
+        ) {
+            excluded_ledger_ids.insert(record.identity.clone());
+            continue;
+        }
         if root_files == RootFilePolicy::Exclude && matches!(scope, ScopeId::Root { .. }) {
             excluded_ledger_ids.insert(record.identity.clone());
             continue;

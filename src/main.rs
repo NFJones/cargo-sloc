@@ -4,6 +4,8 @@ use std::io::Write;
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
+    #[cfg(unix)]
+    cargo_sloc::install_unix_cancellation_handler();
     let output = cargo_sloc::run(std::env::args_os().skip(1));
 
     if let Err(error) = std::io::stdout().write_all(&output.stdout) {

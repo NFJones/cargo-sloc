@@ -9,6 +9,8 @@ use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
 };
+#[cfg(unix)]
+use std::sync::{Mutex, OnceLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -18,6 +20,72 @@ const DEFAULT_TIMEOUT: Duration = Duration::from_secs(120);
 const DEFAULT_STREAM_LIMIT: usize = 64 * 1024 * 1024;
 #[cfg(not(unix))]
 const POLL_INTERVAL: Duration = Duration::from_millis(10);
+
+#[cfg(unix)]
+static ACTIVE_PROCESS_GROUP: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
+#[cfg(unix)]
+static CANCELLATION_SIGNAL: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
+#[cfg(unix)]
+static CANCELLATION_HANDLER_INSTALLED: AtomicBool = AtomicBool::new(false);
+#[cfg(unix)]
+static CANCELLATION_PROCESS_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+/// Installs SIGINT and SIGTERM forwarding for the currently owned subprocess group.
+#[cfg(unix)]
+pub(crate) fn install_cancellation_handler() {
+    // SAFETY: the handler uses only atomic operations and `kill`, both async-signal-safe.
+    unsafe {
+        libc::signal(
+            libc::SIGINT,
+            cancellation_handler as *const () as libc::sighandler_t,
+        );
+        libc::signal(
+            libc::SIGTERM,
+            cancellation_handler as *const () as libc::sighandler_t,
+        );
+    }
+    CANCELLATION_HANDLER_INSTALLED.store(true, Ordering::Release);
+}
+
+#[cfg(unix)]
+extern "C" fn cancellation_handler(signal: libc::c_int) {
+    let process_group = ACTIVE_PROCESS_GROUP.load(Ordering::Relaxed);
+    if process_group > 0 {
+        // SAFETY: a negative process ID targets only the active owned process group.
+        unsafe {
+            libc::kill(-process_group, signal);
+        }
+        CANCELLATION_SIGNAL.store(signal, Ordering::Relaxed);
+    }
+}
+
+#[cfg(unix)]
+struct ActiveProcessGroup {
+    process_group: i32,
+}
+
+#[cfg(unix)]
+impl ActiveProcessGroup {
+    fn set(process_id: u32) -> Self {
+        let process_group = i32::try_from(process_id).unwrap_or(i32::MAX);
+        CANCELLATION_SIGNAL.store(0, Ordering::Release);
+        ACTIVE_PROCESS_GROUP.store(process_group, Ordering::Release);
+        Self { process_group }
+    }
+}
+
+#[cfg(unix)]
+impl Drop for ActiveProcessGroup {
+    fn drop(&mut self) {
+        let _ = ACTIVE_PROCESS_GROUP.compare_exchange(
+            self.process_group,
+            0,
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        );
+        CANCELLATION_SIGNAL.store(0, Ordering::Release);
+    }
+}
 
 /// Complete bounded output from a subprocess.
 #[derive(Debug)]
@@ -44,6 +112,8 @@ pub(crate) enum ProcessError {
     },
     #[error("{purpose} timed out after {timeout:?}")]
     Timeout { purpose: String, timeout: Duration },
+    #[error("{purpose} was cancelled by signal {signal}")]
+    Cancelled { purpose: String, signal: i32 },
     #[error("{purpose} exceeded the {limit}-byte output limit")]
     OutputLimit { purpose: String, limit: usize },
     #[error("failed to capture {purpose} output: {message}")]
@@ -130,6 +200,15 @@ fn run_with_limits(
     limits: Limits,
 ) -> Result<BoundedOutput, ProcessError> {
     crate::metrics::record_subprocess();
+    #[cfg(unix)]
+    let cancellation_lock = CANCELLATION_HANDLER_INSTALLED
+        .load(Ordering::Acquire)
+        .then(|| {
+            CANCELLATION_PROCESS_LOCK
+                .get_or_init(|| Mutex::new(()))
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+        });
     command.stdout(Stdio::piped()).stderr(Stdio::piped());
     #[cfg(unix)]
     {
@@ -141,6 +220,8 @@ fn run_with_limits(
         purpose: purpose.clone(),
         source,
     })?;
+    #[cfg(unix)]
+    let _active_process_group = ActiveProcessGroup::set(child.id());
     let stdout = child.stdout.take().expect("piped stdout is present");
     let stderr = child.stderr.take().expect("piped stderr is present");
     let exceeded = Arc::new(AtomicBool::new(false));
@@ -162,7 +243,9 @@ fn run_with_limits(
 
     #[cfg(unix)]
     {
-        wait_with_notifications(child, purpose, limits, events, receiver)
+        let result = wait_with_notifications(child, purpose, limits, events, receiver);
+        drop(cancellation_lock);
+        result
     }
 
     #[cfg(not(unix))]
@@ -207,6 +290,13 @@ fn wait_with_notifications(
     let mut stdout = None;
     let mut stderr = None;
     loop {
+        let cancellation = CANCELLATION_SIGNAL.load(Ordering::Acquire);
+        if cancellation != 0 {
+            return Err(ProcessError::Cancelled {
+                purpose,
+                signal: cancellation,
+            });
+        }
         if status.is_some() && stdout.is_some() && stderr.is_some() {
             return Ok(BoundedOutput {
                 status: status.take().expect("completed process status is present"),
@@ -497,6 +587,26 @@ mod tests {
 
         assert!(matches!(error, ProcessError::Timeout { .. }));
         assert!(started.elapsed() < Duration::from_secs(2));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cancellation_signal_terminates_the_active_process_group() {
+        install_cancellation_handler();
+        let mut command = Command::new("sh");
+        command.args(["-c", "kill -TERM \"$PPID\"; sleep 30"]);
+
+        let error = run_with_limits(
+            &mut command,
+            "cancellation probe".to_owned(),
+            Limits {
+                timeout: Duration::from_secs(5),
+                stream_bytes: 1024,
+            },
+        )
+        .expect_err("cancellation signal must interrupt the active process group");
+
+        assert!(matches!(error, ProcessError::Cancelled { signal, .. } if signal == libc::SIGTERM));
     }
 
     #[cfg(target_os = "linux")]

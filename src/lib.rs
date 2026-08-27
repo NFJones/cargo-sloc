@@ -24,6 +24,12 @@ pub use app::ProcessOutput;
 pub use metrics::MeasuredRun;
 pub use snapshot::ResidentSession;
 
+/// Installs Unix SIGINT and SIGTERM forwarding for owned Cargo and rustc subprocess groups.
+#[cfg(unix)]
+pub fn install_unix_cancellation_handler() {
+    process::install_cancellation_handler();
+}
+
 /// Runs `cargo-sloc` without writing to process streams.
 ///
 /// The returned output is complete and buffered, allowing the process entry

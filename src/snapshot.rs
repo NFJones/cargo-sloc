@@ -255,7 +255,7 @@ impl ResidentSession {
                 self.input_manifest = Some(after.manifest);
                 return self.refresh_inner(false);
             }
-            return output;
+            return inputs_unstable_output();
         }
 
         self.prepared = Some(prepared);
@@ -386,7 +386,7 @@ fn run_with_cache(selection: Selection, cache_root: &Path) -> ProcessOutput {
         };
         if stable != after {
             crate::metrics::record_snapshot_miss("inputs-unstable");
-            return output;
+            return inputs_unstable_output();
         }
         after = stable;
     }
@@ -402,6 +402,10 @@ fn run_with_cache(selection: Selection, cache_root: &Path) -> ProcessOutput {
         crate::metrics::record_snapshot_write();
     }
     output
+}
+
+fn inputs_unstable_output() -> ProcessOutput {
+    crate::app::operational_error(crate::error::AppError::SnapshotInputsUnstable)
 }
 
 fn load(path: &Path, selection_key: &str, fingerprint: &str) -> Option<ProcessOutput> {
@@ -1987,6 +1991,14 @@ mod tests {
         assert_eq!(ambiguous.metrics.subprocesses, 0);
         assert!(ambiguous.output.stdout.is_empty());
         assert_eq!(ambiguous.output, crate::app::execute(selection));
+    }
+
+    #[test]
+    fn repeated_snapshot_input_instability_fails_closed() {
+        let output = inputs_unstable_output();
+        assert_eq!(output.exit_code, 1);
+        assert!(output.stdout.is_empty());
+        assert!(String::from_utf8_lossy(&output.stderr).contains("inputs remained unstable"));
     }
 
     fn measured(operation: impl FnOnce() -> ProcessOutput) -> crate::metrics::MeasuredRun {

@@ -186,6 +186,11 @@ pub enum AppError {
     /// Checked report arithmetic overflowed.
     #[error("line-count overflow while {0}")]
     CountOverflow(&'static str),
+    /// Snapshot inputs changed throughout the bounded validation retry.
+    #[error(
+        "snapshot inputs remained unstable during validation; retry after source changes settle"
+    )]
+    SnapshotInputsUnstable,
     /// Report inputs violated an internal cross-phase identity invariant.
     #[error("cannot construct report: {0}")]
     ReportInvariant(String),

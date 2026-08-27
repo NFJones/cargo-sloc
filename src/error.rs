@@ -99,6 +99,14 @@ pub enum AppError {
         #[source]
         source: std::io::Error,
     },
+    /// A selected Rust source resolves outside the requested Root.
+    #[error("selected Rust source `{path}` resolves outside Root `{root}`")]
+    SourceOutsideRoot {
+        /// Source path reported by Cargo or module resolution.
+        path: PathBuf,
+        /// Canonical requested Root.
+        root: PathBuf,
+    },
     /// A selected Rust source file was not valid UTF-8 input.
     #[error("selected Rust source `{path}` is not valid UTF-8: {message}")]
     SourceEncoding {

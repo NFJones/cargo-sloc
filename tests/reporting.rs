@@ -117,6 +117,26 @@ fn unselected_package_trees_do_not_contribute_or_parse_sources() {
 }
 
 #[test]
+fn selected_rust_source_outside_root_fails_with_a_path_diagnostic() {
+    let parent = TempDir::new().expect("create parent");
+    let root = parent.path().join("root");
+    let external = parent.path().join("outside.rs");
+    write(
+        root.join("Cargo.toml"),
+        "[package]\nname = \"escaping-source\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\n[lib]\npath = \"../outside.rs\"\n",
+    );
+    write(external, "pub fn outside() {}\n");
+
+    let output = run(&root, ["--json"]);
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("selected Rust source"));
+    assert!(stderr.contains("outside Root"));
+    assert!(stderr.contains("outside.rs"));
+}
+
+#[test]
 fn configured_in_root_cache_storage_is_not_reported_as_source() {
     let root = TempDir::new().expect("create Root");
     let cache = root.path().join("cache-storage");

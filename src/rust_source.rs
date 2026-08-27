@@ -107,12 +107,13 @@ pub struct ReachableSource {
 /// Discovers Rust source reachable from all configured target roots.
 pub fn discover(configured: &ConfiguredInventory) -> Result<SourceInventory, AppError> {
     let mut cache = SourceCache::default();
-    discover_with_cache(configured, &mut cache)
+    discover_with_cache(configured, None, &mut cache)
 }
 
 /// Discovers Rust source while reusing content-validated owned file analyses.
 pub(crate) fn discover_with_cache(
     configured: &ConfiguredInventory,
+    root: Option<&Path>,
     cache: &mut SourceCache,
 ) -> Result<SourceInventory, AppError> {
     cache.begin_refresh();
@@ -124,6 +125,7 @@ pub(crate) fn discover_with_cache(
             packages.push(discover_package(
                 &project.root,
                 package,
+                root,
                 cache,
                 &mut warnings,
             )?);
@@ -206,6 +208,7 @@ fn warn_about_shared_sources(
 fn discover_package(
     project_root: &Path,
     package: &ConfiguredPackage,
+    root: Option<&Path>,
     cache: &mut SourceCache,
     warnings: &mut Vec<Warning>,
 ) -> Result<PackageSources, AppError> {
@@ -240,7 +243,7 @@ fn discover_package(
     let mut visited = BTreeSet::new();
     let mut files = BTreeMap::<PathBuf, ReachableSource>::new();
     while let Some((work, context_ids)) = queue.pop_first() {
-        let identity = source_identity(&work.path, warnings)?;
+        let identity = source_identity(&work.path, root, warnings)?;
         let pending = context_ids
             .into_iter()
             .filter(|context| {
@@ -523,8 +526,18 @@ fn child_module_base(path: &Path) -> PathBuf {
     }
 }
 
-fn source_identity(path: &Path, warnings: &mut Vec<Warning>) -> Result<PathBuf, AppError> {
+fn source_identity(
+    path: &Path,
+    root: Option<&Path>,
+    warnings: &mut Vec<Warning>,
+) -> Result<PathBuf, AppError> {
     match path.canonicalize() {
+        Ok(path) if root.is_some_and(|root| !path.starts_with(root)) => {
+            Err(AppError::SourceOutsideRoot {
+                path: path.to_path_buf(),
+                root: root.expect("Root checked above").to_path_buf(),
+            })
+        }
         Ok(path) => Ok(path),
         Err(_) => {
             let path = absolute_path(path)?;

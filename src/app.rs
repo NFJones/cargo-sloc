@@ -143,7 +143,11 @@ pub(crate) fn execute_prepared_with_cache(
             .sum(),
     );
     let sources = match crate::metrics::phase(crate::metrics::Phase::SourceDiscovery, || {
-        crate::rust_source::discover_with_cache(&configured, source_cache)
+        crate::rust_source::discover_with_cache(
+            &configured,
+            Some(selection.root.as_path()),
+            source_cache,
+        )
     }) {
         Ok(sources) => sources,
         Err(error) => return operational_error(error),

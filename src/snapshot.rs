@@ -934,6 +934,7 @@ fn preparation_fingerprint(selection: &Selection) -> io::Result<String> {
         selection.root.as_path(),
         &mut state,
     )?;
+    hash_implicit_target_topology(selection.root.as_path(), &mut state)?;
     hash_ancestor_configuration(selection.root.as_path(), &mut state, &mut visited)?;
     hash_requested_targets(selection, &mut state, &mut visited)?;
     hash_environment(&mut state)?;
@@ -976,8 +977,77 @@ fn hash_preparation_tree(root: &Path, path: &Path, state: &mut Digest) -> io::Re
 fn preparation_file(path: &Path) -> bool {
     matches!(
         path.file_name().and_then(OsStr::to_str),
-        Some("Cargo.toml" | "Cargo.lock" | "config" | "config.toml" | ".gitignore" | ".ignore")
+        Some(
+            "Cargo.toml"
+                | "Cargo.lock"
+                | "config"
+                | "config.toml"
+                | ".gitignore"
+                | ".ignore"
+                | "rust-toolchain"
+                | "rust-toolchain.toml"
+        )
     ) || path.extension().and_then(OsStr::to_str) == Some("json")
+}
+
+fn hash_implicit_target_topology(root: &Path, state: &mut Digest) -> io::Result<()> {
+    let mut packages = Vec::new();
+    collect_package_roots(root, root, &mut packages)?;
+    for package in packages {
+        for path in [
+            package.join("src/lib.rs"),
+            package.join("src/main.rs"),
+            package.join("build.rs"),
+        ] {
+            hash_topology_path(root, &path, state)?;
+        }
+        for directory in ["src/bin", "examples", "tests", "benches"] {
+            hash_topology_tree(root, &package.join(directory), state)?;
+        }
+    }
+    Ok(())
+}
+
+fn collect_package_roots(root: &Path, path: &Path, packages: &mut Vec<PathBuf>) -> io::Result<()> {
+    if path.join("Cargo.toml").is_file() {
+        packages.push(path.to_path_buf());
+    }
+    let mut entries = fs::read_dir(path)?.collect::<Result<Vec<_>, _>>()?;
+    entries.sort_by_key(fs::DirEntry::file_name);
+    for entry in entries {
+        if excluded_preparation_directory(&entry) {
+            continue;
+        }
+        if entry.file_type()?.is_dir() {
+            collect_package_roots(root, &entry.path(), packages)?;
+        }
+    }
+    let _ = root;
+    Ok(())
+}
+
+fn hash_topology_path(root: &Path, path: &Path, state: &mut Digest) -> io::Result<()> {
+    hash_path(path.strip_prefix(root).unwrap_or(path), state)?;
+    state.add(&[u8::from(path.is_file())]);
+    Ok(())
+}
+
+fn hash_topology_tree(root: &Path, path: &Path, state: &mut Digest) -> io::Result<()> {
+    hash_topology_path(root, path, state)?;
+    if !path.is_dir() {
+        return Ok(());
+    }
+    let mut entries = fs::read_dir(path)?.collect::<Result<Vec<_>, _>>()?;
+    entries.sort_by_key(fs::DirEntry::file_name);
+    for entry in entries {
+        let path = entry.path();
+        if entry.file_type()?.is_dir() {
+            hash_topology_tree(root, &path, state)?;
+        } else if path.extension() == Some(OsStr::new("rs")) {
+            hash_topology_path(root, &path, state)?;
+        }
+    }
+    Ok(())
 }
 
 fn hash_selection(selection: &Selection, state: &mut Digest) -> io::Result<()> {
@@ -1548,6 +1618,30 @@ mod tests {
                 preparation_fingerprint(&selection).expect("changed preparation fingerprint")
             );
         }
+    }
+
+    #[test]
+    fn toolchain_selectors_and_implicit_targets_change_preparation_fingerprints() {
+        let root = package("preparation-topology");
+        let selection = selection(root.path());
+
+        let before_toolchain =
+            preparation_fingerprint(&selection).expect("first preparation fingerprint");
+        fs::write(root.path().join("rust-toolchain"), "stable\n")
+            .expect("write toolchain selector");
+        assert_ne!(
+            before_toolchain,
+            preparation_fingerprint(&selection).expect("toolchain preparation fingerprint")
+        );
+
+        let before_target =
+            preparation_fingerprint(&selection).expect("second preparation fingerprint");
+        fs::write(root.path().join("src/main.rs"), "fn main() {}\n")
+            .expect("write implicit binary target");
+        assert_ne!(
+            before_target,
+            preparation_fingerprint(&selection).expect("implicit target preparation fingerprint")
+        );
     }
 
     #[test]

@@ -227,6 +227,31 @@ fn one_physical_source_shared_by_same_name_packages_is_warned() {
     assert!(sources.warnings[0].message.contains("b/Cargo.toml"));
 }
 
+#[cfg(unix)]
+#[test]
+fn hard_linked_sources_shared_by_packages_are_warned() {
+    let root = TempDir::new().expect("create Root");
+    for directory in ["a", "b"] {
+        write(
+            root.path().join(directory).join("Cargo.toml"),
+            "[package]\nname = \"shared\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
+        );
+    }
+    write(root.path().join("a/src/lib.rs"), "pub fn shared() {}\n");
+    fs::create_dir_all(root.path().join("b/src")).expect("create second source directory");
+    fs::hard_link(
+        root.path().join("a/src/lib.rs"),
+        root.path().join("b/src/lib.rs"),
+    )
+    .expect("create cross-package hard link");
+
+    let sources = source_inventory(root.path(), []);
+    assert_eq!(sources.warnings.len(), 1);
+    assert_eq!(sources.warnings[0].code, "source-shared-between-packages");
+    assert!(sources.warnings[0].message.contains("a/Cargo.toml"));
+    assert!(sources.warnings[0].message.contains("b/Cargo.toml"));
+}
+
 #[test]
 fn one_physical_source_shared_by_targets_in_one_package_does_not_warn() {
     let root = TempDir::new().expect("create Root");

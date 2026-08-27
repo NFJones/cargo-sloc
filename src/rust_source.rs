@@ -10,6 +10,7 @@ use ra_ap_syntax::{Edition, ast};
 
 use crate::configuration::{BuildContext, ConfiguredInventory, ConfiguredPackage};
 use crate::error::AppError;
+use crate::generic_source::physical_identity_for_path;
 use crate::model::{CfgOption, ContextKind};
 use crate::report::Warning;
 use crate::rust_analysis::{EvaluatedFile, FileAnalysis};
@@ -129,7 +130,7 @@ pub(crate) fn discover_with_cache(
         }
     }
     warn_about_unknown_cfgs(&packages, &mut warnings)?;
-    warn_about_shared_sources(&packages, &mut warnings);
+    warn_about_shared_sources(&packages, &mut warnings)?;
     warnings.sort();
     cache.finish_refresh();
     Ok(SourceInventory { packages, warnings })
@@ -157,17 +158,32 @@ fn warn_about_unknown_cfgs(
     Ok(())
 }
 
-fn warn_about_shared_sources(packages: &[PackageSources], warnings: &mut Vec<Warning>) {
-    let mut owners = BTreeMap::<&Path, BTreeMap<(&Path, &str), (&str, &Path)>>::new();
+fn warn_about_shared_sources(
+    packages: &[PackageSources],
+    warnings: &mut Vec<Warning>,
+) -> Result<(), AppError> {
+    let mut owners = BTreeMap::new();
     for package in packages {
         for source in &package.files {
-            owners.entry(&source.path).or_default().insert(
+            let identity = physical_identity_for_path(&source.path).map_err(|error| {
+                AppError::ReportInvariant(format!(
+                    "could not establish physical identity for reachable Rust source `{}`: {error}",
+                    source.path.display()
+                ))
+            })?;
+            let (path, packages) = owners
+                .entry(identity)
+                .or_insert_with(|| (source.path.clone(), BTreeMap::new()));
+            if source.path < *path {
+                *path = source.path.clone();
+            }
+            packages.insert(
                 (package.project_root.as_path(), package.id.as_str()),
                 (package.name.as_str(), package.manifest_path.as_path()),
             );
         }
     }
-    for (path, packages) in owners {
+    for (_, (path, packages)) in owners {
         if packages.len() > 1 {
             let labels = packages
                 .into_values()
@@ -184,6 +200,7 @@ fn warn_about_shared_sources(packages: &[PackageSources], warnings: &mut Vec<War
             });
         }
     }
+    Ok(())
 }
 
 fn discover_package(

@@ -91,6 +91,32 @@ fn mixed_package_and_root_scopes_are_both_visible_and_filterable() {
 }
 
 #[test]
+fn unselected_package_trees_do_not_contribute_or_parse_sources() {
+    let root = TempDir::new().expect("create Root");
+    package_at(
+        root.path().join("selected"),
+        "selected",
+        "pub fn selected() {}\n",
+    );
+    package_at(
+        root.path().join("unselected"),
+        "unselected",
+        "pub fn malformed( {\n",
+    );
+    write(
+        root.path().join("unselected/tool.py"),
+        "print('unselected')\n",
+    );
+
+    let output = run(root.path(), ["--json", "--package", "selected"]);
+    assert_success(&output);
+    let report: Value = serde_json::from_slice(&output.stdout).expect("parse JSON report");
+    let rows = report["rows"].as_array().expect("rows array");
+    assert!(rows.iter().all(|row| row["scope"]["name"] == "selected"));
+    assert!(rows.iter().all(|row| row["language"] != "Python"));
+}
+
+#[test]
 fn configured_in_root_cache_storage_is_not_reported_as_source() {
     let root = TempDir::new().expect("create Root");
     let cache = root.path().join("cache-storage");

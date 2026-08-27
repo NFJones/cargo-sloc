@@ -248,6 +248,7 @@ fn configured<const N: usize>(
             targets: vec!["test-host".to_owned()],
             packages: packages.into(),
         }],
+        unselected_package_roots: Vec::new(),
         warnings: Vec::new(),
     }
 }

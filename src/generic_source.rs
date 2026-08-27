@@ -257,6 +257,25 @@ pub(crate) fn discover_root_with_cache(
             .then_with(|| left.root.cmp(&right.root))
             .then_with(|| left.package.id.cmp(&right.package.id))
     });
+    let mut package_boundaries = owners
+        .iter()
+        .map(|owner| (owner.root.clone(), true))
+        .chain(
+            configured
+                .unselected_package_roots
+                .iter()
+                .cloned()
+                .map(|root| (root, false)),
+        )
+        .collect::<Vec<_>>();
+    package_boundaries.sort_by(|left, right| {
+        right
+            .0
+            .components()
+            .count()
+            .cmp(&left.0.components().count())
+            .then_with(|| left.0.cmp(&right.0))
+    });
 
     let mut records = BTreeMap::<PhysicalFileId, FileRecord>::new();
     let mut builder = WalkBuilder::new(&root);
@@ -285,6 +304,13 @@ pub(crate) fn discover_root_with_cache(
         if entry.file_type().is_some_and(|kind| kind.is_dir())
             || !path.is_file()
             || (!is_rust_source(path) && !is_candidate(path))
+        {
+            continue;
+        }
+        if package_boundaries
+            .iter()
+            .find(|(boundary, _)| path.starts_with(boundary))
+            .is_some_and(|(_, selected)| !selected)
         {
             continue;
         }

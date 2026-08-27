@@ -23,6 +23,8 @@ use crate::report::Warning;
 pub struct ConfiguredInventory {
     /// Configured Projects in deterministic root order.
     pub projects: Vec<ConfiguredProject>,
+    /// In-Root workspace Package roots excluded by the current selection.
+    pub unselected_package_roots: Vec<PathBuf>,
     /// Configuration warnings.
     pub warnings: Vec<Warning>,
 }
@@ -105,7 +107,11 @@ pub fn resolve(
         }
     }
     warnings.sort();
-    Ok(ConfiguredInventory { projects, warnings })
+    Ok(ConfiguredInventory {
+        projects,
+        unselected_package_roots: inventory.unselected_package_roots.clone(),
+        warnings,
+    })
 }
 
 fn resolve_project(

@@ -19,6 +19,8 @@ use crate::report::Warning;
 pub struct Inventory {
     /// Discovered Projects that contain at least one selected Package.
     pub projects: Vec<ProjectInventory>,
+    /// In-Root workspace Package roots excluded by the current selection.
+    pub unselected_package_roots: Vec<PathBuf>,
     /// Nonfatal selection diagnostics.
     pub warnings: Vec<Warning>,
 }
@@ -166,6 +168,7 @@ pub fn discover(selection: &Selection) -> Result<Inventory, AppError> {
     let selected_ids = select_package_ids(&projects, selection)?;
     let mut warnings = Vec::new();
     let mut inventory_projects = Vec::new();
+    let mut unselected_package_roots = Vec::new();
     let mut target_state = TargetSelectionState::default();
 
     for (project_root, loaded) in projects {
@@ -181,8 +184,17 @@ pub fn discover(selection: &Selection) -> Result<Inventory, AppError> {
             let manifest_path = canonical_path(package.manifest_path.as_std_path())?;
             if !workspace_members.contains(package.id.repr.as_str())
                 || !manifest_path.starts_with(selection.root.as_path())
-                || !selected_ids.contains(&package.id.repr)
             {
+                continue;
+            }
+
+            if !selected_ids.contains(&package.id.repr) {
+                unselected_package_roots.push(
+                    manifest_path
+                        .parent()
+                        .unwrap_or(Path::new("."))
+                        .to_path_buf(),
+                );
                 continue;
             }
 
@@ -224,9 +236,12 @@ pub fn discover(selection: &Selection) -> Result<Inventory, AppError> {
         });
     }
     target_state.finish(selection, &mut warnings)?;
+    unselected_package_roots.sort();
+    unselected_package_roots.dedup();
     warnings.sort();
     Ok(Inventory {
         projects: inventory_projects,
+        unselected_package_roots,
         warnings,
     })
 }

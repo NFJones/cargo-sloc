@@ -117,6 +117,45 @@ fn unselected_package_trees_do_not_contribute_or_parse_sources() {
 }
 
 #[test]
+fn primary_workspace_does_not_count_an_in_root_path_dependency() {
+    let root = TempDir::new().expect("create Root");
+    write(
+        root.path().join("Cargo.toml"),
+        "[workspace]\nmembers = [\"app\"]\nexclude = [\"dependency\"]\nresolver = \"3\"\n",
+    );
+    write(
+        root.path().join("app/Cargo.toml"),
+        "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\n[dependencies]\ndependency = { path = \"../dependency\" }\n",
+    );
+    write(
+        root.path().join("app/src/lib.rs"),
+        "pub fn app() { dependency::used(); }\n",
+    );
+    package_at(
+        root.path().join("dependency"),
+        "dependency",
+        "pub fn used() {}\n",
+    );
+    write(
+        root.path().join("dependency/generated.py"),
+        "print('dependency')\n",
+    );
+
+    let output = run(root.path(), ["--json"]);
+    assert_success(&output);
+    let report: Value = serde_json::from_slice(&output.stdout).expect("parse JSON report");
+    let rows = report["rows"].as_array().expect("rows array");
+
+    let package_names = rows
+        .iter()
+        .filter(|row| row["scope"]["kind"] == "package")
+        .map(|row| row["scope"]["name"].as_str().expect("package name"))
+        .collect::<BTreeSet<_>>();
+    assert_eq!(package_names, BTreeSet::from(["app"]));
+    assert!(rows.iter().all(|row| row["language"] != "Python"));
+}
+
+#[test]
 fn selected_rust_source_outside_root_fails_with_a_path_diagnostic() {
     let parent = TempDir::new().expect("create parent");
     let root = parent.path().join("root");

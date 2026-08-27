@@ -41,8 +41,8 @@ Rust and Cargo 1.95 or newer are required.
 
 ## Usage
 
-Count all supported, non-ignored files plus every eligible Cargo package,
-feature, and package target beneath the current directory:
+Count all supported, non-ignored files plus every eligible package, feature,
+and package target in the primary Cargo workspace at the current directory:
 
 ```sh
 cargo sloc
@@ -86,11 +86,15 @@ Package, feature, and standard target selectors follow Cargo syntax. Run
 ## What is counted
 
 `cargo-sloc` counts supported, non-ignored source files below the requested
-Root. It reports Cargo-owned files by package and files without a unique
-selected-package owner as `<root>`. Rust reached from selected Cargo targets is
-analyzed with Cargo features and Rust `cfg` attributes. Other Rust files and
-other recognized languages use lexical accounting, so they do not claim Cargo
-target, feature, cfg, import, or test provenance filtering.
+Root, excluding structural `target` directories. When the Root contains a
+`Cargo.toml`, that manifest defines the primary workspace: only its in-Root
+workspace members are package-eligible, while registry, Git, and path
+dependencies are not counted. It reports Cargo-owned files by package and
+eligible files without a unique selected-package owner as `<root>`. Rust
+reached from selected Cargo targets is analyzed with Cargo features and Rust
+`cfg` attributes. Other Rust files and other recognized languages use lexical
+accounting, so they do not claim Cargo target, feature, cfg, import, or test
+provenance filtering.
 
 The supported-language catalog is based on Tokei; Rust uses cargo-sloc's
 configuration-aware accountant. See [SPEC.md](SPEC.md) for the full language,

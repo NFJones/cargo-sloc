@@ -1134,13 +1134,14 @@ fn hash_external(
 
 fn excluded_directory(entry: &fs::DirEntry) -> bool {
     entry.file_type().is_ok_and(|kind| kind.is_dir())
-        && matches!(entry.file_name().to_str(), Some(".git" | ".cargo-sloc"))
+        && matches!(
+            entry.file_name().to_str(),
+            Some("target" | ".git" | ".hg" | ".svn" | ".cargo-sloc")
+        )
 }
 
 fn excluded_preparation_directory(entry: &fs::DirEntry) -> bool {
     excluded_directory(entry)
-        || (entry.file_type().is_ok_and(|kind| kind.is_dir())
-            && entry.file_name() == OsStr::new("target"))
 }
 
 fn hash_file(path: &Path, state: &mut Digest) -> io::Result<()> {
@@ -1503,7 +1504,7 @@ mod tests {
     }
 
     #[test]
-    fn target_source_changes_invalidate_persistent_snapshots() {
+    fn target_source_changes_do_not_invalidate_persistent_snapshots() {
         let root = package("snapshot-target-source");
         let cache = tempfile::tempdir().expect("create snapshot cache");
         fs::create_dir_all(root.path().join("target")).expect("create target directory");
@@ -1528,11 +1529,9 @@ mod tests {
         let edited = measured(|| run_with_cache(selection.clone(), cache.path()));
 
         assert_eq!(edited.output.exit_code, 0);
-        assert_eq!(edited.metrics.caches.snapshot_hits, 0);
-        assert_eq!(edited.metrics.caches.preparation_hits, 1);
+        assert_eq!(edited.metrics.caches.snapshot_hits, 1);
         assert_eq!(edited.metrics.subprocesses, 0);
-        assert_ne!(edited.output.stdout, warm.output.stdout);
-        assert_eq!(edited.output, crate::app::execute(selection));
+        assert_eq!(edited.output, warm.output);
     }
 
     #[test]
@@ -1994,7 +1993,7 @@ mod tests {
     }
 
     #[test]
-    fn target_source_changes_invalidate_resident_snapshots() {
+    fn target_source_changes_do_not_invalidate_resident_snapshots() {
         let root = package("resident-target-source");
         fs::create_dir_all(root.path().join("target")).expect("create target directory");
         fs::write(
@@ -2019,18 +2018,9 @@ mod tests {
         let edited = session.refresh_with_metrics();
 
         assert_eq!(edited.output.exit_code, 0);
-        assert_eq!(edited.metrics.caches.snapshot_hits, 0);
+        assert_eq!(edited.metrics.caches.snapshot_hits, 1);
         assert_eq!(edited.metrics.subprocesses, 0);
-        assert_eq!(
-            edited
-                .metrics
-                .caches
-                .outcomes
-                .get("snapshot.miss.resident-source-changed"),
-            Some(&1)
-        );
-        assert_ne!(edited.output.stdout, warm.output.stdout);
-        assert_eq!(edited.output, crate::app::execute(selection));
+        assert_eq!(edited.output, warm.output);
     }
 
     #[test]

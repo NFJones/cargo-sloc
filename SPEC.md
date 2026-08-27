@@ -295,10 +295,12 @@ Root, a selected feature set, non-default features, and JSON output.
 
 ### 6.1 Project discovery
 
-cargo-sloc MUST recursively discover Cargo manifests beneath the Root through
-the shared Root Source Inventory traversal. The traversal MUST structurally
-exclude `.git`, `.hg`, `.svn`, and the legacy `.cargo-sloc` cache directory. By
-default, persistent cache data MUST be stored under `$HOME/.cache/cargo-sloc`;
+cargo-sloc MUST discover the primary Cargo Project identified by a
+`Cargo.toml` at the Root. When the Root has no manifest, it MUST recursively
+discover Cargo manifests beneath the Root through the shared Root Source
+Inventory traversal. The traversal MUST structurally exclude `.git`, `.hg`,
+`.svn`, `target`, and the legacy `.cargo-sloc` cache directory. By default,
+persistent cache data MUST be stored under `$HOME/.cache/cargo-sloc`;
 `CARGO_SLOC_CACHE_DIR` MAY override that location. The traversal MUST honor
 paths excluded by `.gitignore` and `.ignore` files located at or beneath the
 Root. Hidden files and directories MUST NOT otherwise be excluded merely because
@@ -344,10 +346,13 @@ same Package in dependency graphs for other Projects, that MUST NOT change its
 owning Project or cause its source to be counted more than once.
 
 Only workspace members and standalone packages whose manifest paths are
-beneath the Root MUST be selected by default. An in-tree nonmember path package
-is eligible only when its manifest is independently discovered, in which case
-it belongs to its standalone Project rather than to a Project that depends on
-it. Registry, Git, and out-of-Root path dependencies MUST NOT be counted.
+beneath the Root MUST be selected by default. When the Root has a manifest,
+only members of that primary workspace are eligible: nested standalone
+packages and nonmember path packages MUST NOT be independently discovered.
+When the Root has no manifest, an in-tree nonmember path package is eligible
+only when its manifest is independently discovered, in which case it belongs
+to its standalone Project rather than to a Project that depends on it.
+Registry, Git, and out-of-Root path dependencies MUST NOT be counted.
 
 A package identified more than once during discovery MUST be selected once,
 using Cargo's package identity. Project discovery and report order MUST be

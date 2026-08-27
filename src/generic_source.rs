@@ -517,7 +517,7 @@ fn is_structural_directory(path: &Path, root: &Path, cache_root: Option<&Path>) 
         && (cache_root == Some(path)
             || matches!(
                 path.file_name().and_then(OsStr::to_str),
-                Some(".cargo-sloc" | ".git" | ".hg" | ".svn")
+                Some("target" | ".cargo-sloc" | ".git" | ".hg" | ".svn")
             ))
 }
 

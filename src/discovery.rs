@@ -182,10 +182,23 @@ pub fn discover(selection: &Selection) -> Result<Inventory, AppError> {
         let mut packages = Vec::new();
 
         for package in &loaded.metadata.packages {
-            let manifest_path = canonical_path(package.manifest_path.as_std_path())?;
-            if !workspace_members.contains(package.id.repr.as_str())
-                || !manifest_path.starts_with(selection.root.as_path())
-            {
+            let workspace_member = workspace_members.contains(package.id.repr.as_str());
+            let reported_manifest = package.manifest_path.as_std_path();
+            if !workspace_member && !reported_manifest.starts_with(selection.root.as_path()) {
+                continue;
+            }
+            let manifest_path = canonical_path(reported_manifest)?;
+            if !manifest_path.starts_with(selection.root.as_path()) {
+                continue;
+            }
+
+            if !workspace_member {
+                unselected_package_roots.push(
+                    manifest_path
+                        .parent()
+                        .unwrap_or(Path::new("."))
+                        .to_path_buf(),
+                );
                 continue;
             }
 
@@ -260,6 +273,11 @@ struct LoadedMetadata {
 }
 
 fn candidate_manifests(root: &Path) -> Result<Vec<PathBuf>, AppError> {
+    let root_manifest = root.join("Cargo.toml");
+    if root_manifest.is_file() {
+        return Ok(vec![root_manifest]);
+    }
+
     let cache_root = crate::snapshot::cache_root()
         .canonicalize()
         .ok()

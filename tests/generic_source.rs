@@ -110,7 +110,7 @@ fn unreadable_eligible_generic_source_is_fatal() {
 }
 
 #[test]
-fn honors_root_local_ignores_and_only_structural_exclusions() {
+fn honors_root_local_ignores_and_structural_exclusions() {
     let root = TempDir::new().expect("create Root");
     package(root.path().join("active"), "active");
     package(root.path().join("inactive"), "inactive");
@@ -143,7 +143,6 @@ fn honors_root_local_ignores_and_only_structural_exclusions() {
         BTreeSet::from([
             "active/generated/output.js".to_owned(),
             "active/kept.js".to_owned(),
-            "active/target/output.js".to_owned(),
             "active/vendor/dependency.js".to_owned(),
         ])
     );

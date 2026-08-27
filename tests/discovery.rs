@@ -76,6 +76,26 @@ fn root_dot_ignore_excludes_malformed_candidate_manifest() {
 }
 
 #[test]
+fn root_manifest_limits_discovery_to_its_primary_workspace() {
+    let root = TempDir::new().expect("create Root");
+    write(
+        root.path().join("Cargo.toml"),
+        "[workspace]\nmembers = [\"app\"]\nexclude = [\"dependency\"]\nresolver = \"3\"\n",
+    );
+    package(root.path().join("app"), "app");
+    package(root.path().join("dependency"), "dependency");
+    write(
+        root.path().join("nested/Cargo.toml"),
+        "this independently nested manifest is deliberately malformed",
+    );
+
+    let inventory = discover(root.path(), []);
+
+    assert_eq!(inventory.projects.len(), 1);
+    assert_eq!(package_names(&inventory), ["app"]);
+}
+
+#[test]
 fn package_selectors_and_workspace_exclusions_apply_across_projects() {
     let root = TempDir::new().expect("create Root");
     write(

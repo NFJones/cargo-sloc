@@ -619,12 +619,13 @@ fn resident_manifest(
     dependencies: &BTreeSet<PathBuf>,
 ) -> io::Result<ResidentValidation> {
     let preparation_fingerprint = preparation_fingerprint(selection)?;
+    let cache_storage = snapshot_project_root(selection, cache_root)?;
     let mut entries = BTreeMap::new();
     let mut changed_bytes = BTreeMap::new();
     let mut visited_directories = BTreeSet::new();
     scan_resident_path(
         selection.root.as_path(),
-        cache_root,
+        &cache_storage,
         previous,
         dependencies,
         &mut entries,
@@ -635,7 +636,7 @@ fn resident_manifest(
         if !entries.contains_key(dependency) {
             scan_resident_path(
                 dependency,
-                cache_root,
+                &cache_storage,
                 previous,
                 dependencies,
                 &mut entries,
@@ -1932,6 +1933,40 @@ mod tests {
         assert_eq!(stable.output, renamed.output);
         assert_eq!(stable.metrics.caches.snapshot_hits, 1);
         assert_eq!(stable.metrics.subprocesses, 0);
+    }
+
+    #[test]
+    fn resident_manifest_scans_roots_nested_below_cache_root() {
+        let cache = tempfile::tempdir().expect("create cache root");
+        let root = cache.path().join("project");
+        fs::create_dir_all(root.join("src")).expect("create project source directory");
+        fs::write(
+            root.join("Cargo.toml"),
+            "[package]\nname = \"nested-cache-root\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
+        )
+        .expect("write project manifest");
+        fs::write(root.join("src/lib.rs"), "pub fn first() {}\n").expect("write source");
+        let selection = selection(&root);
+
+        let first = resident_manifest(&selection, cache.path(), None, &BTreeSet::new())
+            .expect("scan nested Root");
+        assert!(first.manifest.entries.contains_key(&root));
+        assert!(
+            first
+                .manifest
+                .entries
+                .contains_key(&root.join("src/lib.rs"))
+        );
+
+        fs::write(root.join("src/lib.rs"), "pub fn second() {}\n").expect("edit source");
+        let second = resident_manifest(
+            &selection,
+            cache.path(),
+            Some(&first.manifest),
+            &BTreeSet::new(),
+        )
+        .expect("rescan nested Root");
+        assert_ne!(first.manifest.fingerprint, second.manifest.fingerprint);
     }
 
     #[test]

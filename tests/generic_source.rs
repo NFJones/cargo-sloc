@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 
 use cargo_sloc::configuration::{ConfiguredInventory, ConfiguredPackage, ConfiguredProject};
 use cargo_sloc::discovery::{TargetContext, TargetInventory, TargetKind};
+use cargo_sloc::error::AppError;
 use cargo_sloc::generic_source::{INVENTORY_POLICY_VERSION, discover, discover_root};
 use tempfile::TempDir;
 
@@ -81,6 +82,31 @@ fn selected_package_without_retained_targets_owns_generic_files() {
         relative_paths(root.path(), &inventory.packages[0].files),
         BTreeSet::from(["app/web/app.js".to_owned()])
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn unreadable_eligible_generic_source_is_fatal() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = TempDir::new().expect("create Root");
+    package(root.path().join("app"), "app");
+    let source = root.path().join("app/web/app.js");
+    write(source.clone(), "const unreadable = true;\n");
+    fs::set_permissions(&source, fs::Permissions::from_mode(0o000))
+        .expect("make generic source unreadable");
+
+    let result = discover(
+        &configured(
+            root.path(),
+            [selected_package(root.path().join("app"), "app", true)],
+        ),
+        candidate,
+    );
+    fs::set_permissions(&source, fs::Permissions::from_mode(0o644))
+        .expect("restore generic source permissions");
+
+    assert!(matches!(result, Err(AppError::GenericSourceRead { .. })));
 }
 
 #[test]

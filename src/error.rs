@@ -99,6 +99,15 @@ pub enum AppError {
         #[source]
         source: std::io::Error,
     },
+    /// An eligible non-Rust source file could not be read.
+    #[error("failed to read eligible source `{path}`: {source}")]
+    GenericSourceRead {
+        /// Eligible source path.
+        path: PathBuf,
+        /// Filesystem failure.
+        #[source]
+        source: std::io::Error,
+    },
     /// A selected Rust source resolves outside the requested Root.
     #[error("selected Rust source `{path}` resolves outside Root `{root}`")]
     SourceOutsideRoot {

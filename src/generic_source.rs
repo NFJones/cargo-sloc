@@ -15,6 +15,7 @@ use ignore::WalkBuilder;
 
 use crate::configuration::{ConfiguredInventory, ConfiguredPackage};
 use crate::error::AppError;
+use crate::model::RootFilePolicy;
 use crate::report::Warning;
 
 /// Version of the Root traversal, identity, and eligibility policy.
@@ -216,13 +217,20 @@ pub fn discover_root(
     is_candidate: impl Fn(&Path) -> bool,
 ) -> Result<GenericSourceInventory, AppError> {
     let mut cache = SourceCache::default();
-    discover_root_with_cache(root, configured, is_candidate, &mut cache)
+    discover_root_with_cache(
+        root,
+        configured,
+        RootFilePolicy::Include,
+        is_candidate,
+        &mut cache,
+    )
 }
 
 /// Discovers root-wide source while reusing content-validated retained bytes.
 pub(crate) fn discover_root_with_cache(
     root: &Path,
     configured: &ConfiguredInventory,
+    root_files: RootFilePolicy,
     is_candidate: impl Fn(&Path) -> bool,
     cache: &mut SourceCache,
 ) -> Result<GenericSourceInventory, AppError> {
@@ -352,6 +360,7 @@ pub(crate) fn discover_root_with_cache(
             .filter(|owner| path.starts_with(&owner.root))
             .map(|owner| owner.package.id.clone())
             .collect::<BTreeSet<_>>();
+        let eligible = !containing_packages.is_empty() || root_files == RootFilePolicy::Include;
         if let Some(record) = records.get_mut(&identity) {
             record.merge_alias(path.to_path_buf(), containing_packages);
             continue;
@@ -369,6 +378,12 @@ pub(crate) fn discover_root_with_cache(
                         disposition: FileDisposition::Pending,
                     },
                 );
+            }
+            Err(error) if eligible => {
+                return Err(AppError::GenericSourceRead {
+                    path: path.to_path_buf(),
+                    source: error,
+                });
             }
             Err(error) => warnings.push(skipped_warning(
                 "source-unreadable",

@@ -175,6 +175,7 @@ pub(crate) fn execute_prepared_with_cache(
             crate::generic_source::discover_root_with_cache(
                 selection.root.as_path(),
                 &configured,
+                selection.root_files,
                 crate::tokei_accounting::is_candidate_path,
                 generic_source_cache,
             )

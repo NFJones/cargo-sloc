@@ -104,6 +104,13 @@ pub(crate) enum ProcessError {
         #[source]
         source: io::Error,
     },
+    #[cfg(windows)]
+    #[error("failed to contain {purpose} subprocess tree: {source}")]
+    Containment {
+        purpose: String,
+        #[source]
+        source: io::Error,
+    },
     #[error("failed while waiting for {purpose}: {source}")]
     Wait {
         purpose: String,
@@ -219,6 +226,14 @@ fn run_with_limits(
     let mut child = command.spawn().map_err(|source| ProcessError::Spawn {
         purpose: purpose.clone(),
         source,
+    })?;
+    #[cfg(windows)]
+    let _job = WindowsJob::attach(&child).map_err(|source| {
+        let _ = child.kill();
+        ProcessError::Containment {
+            purpose: purpose.clone(),
+            source,
+        }
     })?;
     #[cfg(unix)]
     let _active_process_group = ActiveProcessGroup::set(child.id());
@@ -532,6 +547,64 @@ fn terminate_linux_descendants(process_id: i32) {
 #[cfg(not(unix))]
 fn terminate(child: &mut std::process::Child) {
     let _ = child.kill();
+}
+
+#[cfg(windows)]
+struct WindowsJob {
+    handle: windows_sys::Win32::Foundation::HANDLE,
+}
+
+#[cfg(windows)]
+impl WindowsJob {
+    fn attach(child: &std::process::Child) -> io::Result<Self> {
+        use std::os::windows::io::AsRawHandle;
+
+        use windows_sys::Win32::System::JobObjects::{
+            AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+            JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
+            SetInformationJobObject,
+        };
+
+        // SAFETY: null attributes and name request an unnamed Job Object.
+        let handle = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
+        if handle.is_null() {
+            return Err(io::Error::last_os_error());
+        }
+        let mut limits = unsafe { std::mem::zeroed::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() };
+        limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        // SAFETY: `handle` is valid and `limits` remains live for the call.
+        let configured = unsafe {
+            SetInformationJobObject(
+                handle,
+                JobObjectExtendedLimitInformation,
+                (&limits as *const JOBOBJECT_EXTENDED_LIMIT_INFORMATION).cast(),
+                u32::try_from(std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>())
+                    .expect("Job Object limit structure fits in u32"),
+            )
+        };
+        if configured == 0 {
+            // SAFETY: `handle` was returned by CreateJobObjectW and is not retained on error.
+            unsafe { windows_sys::Win32::Foundation::CloseHandle(handle) };
+            return Err(io::Error::last_os_error());
+        }
+        // SAFETY: the child handle remains valid for the duration of this call.
+        let assigned = unsafe { AssignProcessToJobObject(handle, child.as_raw_handle() as isize) };
+        if assigned == 0 {
+            // SAFETY: `handle` was returned by CreateJobObjectW and is not retained on error.
+            unsafe { windows_sys::Win32::Foundation::CloseHandle(handle) };
+            return Err(io::Error::last_os_error());
+        }
+        Ok(Self { handle })
+    }
+}
+
+#[cfg(windows)]
+impl Drop for WindowsJob {
+    fn drop(&mut self) {
+        // SAFETY: this object exclusively owns the valid Job Object handle. The configured
+        // kill-on-close limit terminates any remaining process tree members.
+        unsafe { windows_sys::Win32::Foundation::CloseHandle(self.handle) };
+    }
 }
 
 #[cfg(test)]

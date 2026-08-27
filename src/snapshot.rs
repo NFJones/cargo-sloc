@@ -17,6 +17,13 @@ use crate::model::Selection;
 const SNAPSHOT_VERSION: u32 = 2;
 const PREPARATION_VERSION: u32 = 2;
 const CACHE_DIRECTORY: &str = "cargo-sloc";
+const ROOT_TRAVERSAL_POLICY_VERSION: u32 = 1;
+const IGNORE_POLICY_VERSION: u32 = 1;
+const PHYSICAL_IDENTITY_POLICY_VERSION: u32 = 1;
+const ELIGIBILITY_POLICY_VERSION: u32 = 1;
+const OWNERSHIP_POLICY_VERSION: u32 = 1;
+const ROUTING_POLICY_VERSION: u32 = 1;
+const RUST_ACCOUNTING_POLICY_VERSION: u32 = 1;
 
 #[derive(Deserialize, Serialize)]
 struct SnapshotRecord {
@@ -1262,27 +1269,51 @@ fn preparation_integrity(
     ]))
 }
 
-fn compatibility_digest() -> String {
-    compatibility_digest_for(
-        crate::report::JSON_SCHEMA_VERSION,
-        crate::tokei_accounting::CATALOG_VERSION,
-        crate::tokei_accounting::ADAPTER_VERSION,
-        crate::generic_source::INVENTORY_POLICY_VERSION,
-    )
+#[derive(Clone, Copy)]
+struct CompatibilityVersions<'a> {
+    json_schema: u8,
+    tokei_catalog: &'a str,
+    tokei_adapter: u32,
+    inventory: u32,
+    root_traversal: u32,
+    ignore: u32,
+    physical_identity: u32,
+    eligibility: u32,
+    ownership: u32,
+    routing: u32,
+    rust_accounting: u32,
 }
 
-fn compatibility_digest_for(
-    json_schema_version: u8,
-    catalog_version: &str,
-    adapter_version: u32,
-    inventory_policy_version: u32,
-) -> String {
+fn compatibility_digest() -> String {
+    compatibility_digest_for(CompatibilityVersions {
+        json_schema: crate::report::JSON_SCHEMA_VERSION,
+        tokei_catalog: crate::tokei_accounting::CATALOG_VERSION,
+        tokei_adapter: crate::tokei_accounting::ADAPTER_VERSION,
+        inventory: crate::generic_source::INVENTORY_POLICY_VERSION,
+        root_traversal: ROOT_TRAVERSAL_POLICY_VERSION,
+        ignore: IGNORE_POLICY_VERSION,
+        physical_identity: PHYSICAL_IDENTITY_POLICY_VERSION,
+        eligibility: ELIGIBILITY_POLICY_VERSION,
+        ownership: OWNERSHIP_POLICY_VERSION,
+        routing: ROUTING_POLICY_VERSION,
+        rust_accounting: RUST_ACCOUNTING_POLICY_VERSION,
+    })
+}
+
+fn compatibility_digest_for(versions: CompatibilityVersions<'_>) -> String {
     digest([
         b"cargo-sloc-compatibility-v1".as_slice(),
-        &[json_schema_version],
-        catalog_version.as_bytes(),
-        &adapter_version.to_le_bytes(),
-        &inventory_policy_version.to_le_bytes(),
+        &[versions.json_schema],
+        versions.tokei_catalog.as_bytes(),
+        &versions.tokei_adapter.to_le_bytes(),
+        &versions.inventory.to_le_bytes(),
+        &versions.root_traversal.to_le_bytes(),
+        &versions.ignore.to_le_bytes(),
+        &versions.physical_identity.to_le_bytes(),
+        &versions.eligibility.to_le_bytes(),
+        &versions.ownership.to_le_bytes(),
+        &versions.routing.to_le_bytes(),
+        &versions.rust_accounting.to_le_bytes(),
     ])
 }
 
@@ -1774,12 +1805,98 @@ mod tests {
 
     #[test]
     fn every_generic_compatibility_input_changes_the_snapshot_digest() {
-        let baseline = compatibility_digest_for(3, "tokei-14.0.0", 1, 1);
+        let versions = CompatibilityVersions {
+            json_schema: 3,
+            tokei_catalog: "tokei-14.0.0",
+            tokei_adapter: 1,
+            inventory: 1,
+            root_traversal: 1,
+            ignore: 1,
+            physical_identity: 1,
+            eligibility: 1,
+            ownership: 1,
+            routing: 1,
+            rust_accounting: 1,
+        };
+        let baseline = compatibility_digest_for(versions);
 
-        assert_ne!(baseline, compatibility_digest_for(4, "tokei-14.0.0", 1, 1));
-        assert_ne!(baseline, compatibility_digest_for(3, "tokei-15.0.0", 1, 1));
-        assert_ne!(baseline, compatibility_digest_for(3, "tokei-14.0.0", 2, 1));
-        assert_ne!(baseline, compatibility_digest_for(3, "tokei-14.0.0", 1, 2));
+        assert_ne!(
+            baseline,
+            compatibility_digest_for(CompatibilityVersions {
+                json_schema: 4,
+                ..versions
+            })
+        );
+        assert_ne!(
+            baseline,
+            compatibility_digest_for(CompatibilityVersions {
+                tokei_catalog: "tokei-15.0.0",
+                ..versions
+            })
+        );
+        assert_ne!(
+            baseline,
+            compatibility_digest_for(CompatibilityVersions {
+                tokei_adapter: 2,
+                ..versions
+            })
+        );
+        assert_ne!(
+            baseline,
+            compatibility_digest_for(CompatibilityVersions {
+                inventory: 2,
+                ..versions
+            })
+        );
+        assert_ne!(
+            baseline,
+            compatibility_digest_for(CompatibilityVersions {
+                root_traversal: 2,
+                ..versions
+            })
+        );
+        assert_ne!(
+            baseline,
+            compatibility_digest_for(CompatibilityVersions {
+                ignore: 2,
+                ..versions
+            })
+        );
+        assert_ne!(
+            baseline,
+            compatibility_digest_for(CompatibilityVersions {
+                physical_identity: 2,
+                ..versions
+            })
+        );
+        assert_ne!(
+            baseline,
+            compatibility_digest_for(CompatibilityVersions {
+                eligibility: 2,
+                ..versions
+            })
+        );
+        assert_ne!(
+            baseline,
+            compatibility_digest_for(CompatibilityVersions {
+                ownership: 2,
+                ..versions
+            })
+        );
+        assert_ne!(
+            baseline,
+            compatibility_digest_for(CompatibilityVersions {
+                routing: 2,
+                ..versions
+            })
+        );
+        assert_ne!(
+            baseline,
+            compatibility_digest_for(CompatibilityVersions {
+                rust_accounting: 2,
+                ..versions
+            })
+        );
     }
 
     #[test]

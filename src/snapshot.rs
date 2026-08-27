@@ -987,7 +987,8 @@ fn hash_tree(
     if metadata.file_type().is_symlink() {
         let target = fs::read_link(path)?;
         hash_path(&target, state)?;
-        if let Ok(canonical) = path.canonicalize()
+        if path.is_file()
+            && let Ok(canonical) = path.canonicalize()
             && visited.insert(canonical.clone())
         {
             hash_external(&canonical, state, visited)?;
@@ -1602,6 +1603,28 @@ mod tests {
             let after =
                 input_fingerprint(&selection, cache.path()).expect("second symlink fingerprint");
             assert_ne!(before, after);
+
+            let external_directory = TempDir::new().expect("create external directory");
+            fs::write(
+                external_directory.path().join("generated.rs"),
+                "pub fn first() {}\n",
+            )
+            .expect("write external generated source");
+            symlink(
+                external_directory.path(),
+                root.path().join("linked-directory"),
+            )
+            .expect("create directory symlink");
+            let before = input_fingerprint(&selection, cache.path())
+                .expect("first directory symlink fingerprint");
+            fs::write(
+                external_directory.path().join("generated.rs"),
+                "pub fn second() {}\n",
+            )
+            .expect("edit external generated source");
+            let after = input_fingerprint(&selection, cache.path())
+                .expect("second directory symlink fingerprint");
+            assert_eq!(before, after);
         }
     }
 

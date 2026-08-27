@@ -91,6 +91,38 @@ fn mixed_package_and_root_scopes_are_both_visible_and_filterable() {
 }
 
 #[test]
+fn json_provenance_omits_projects_without_selected_packages() {
+    let root = TempDir::new().expect("create Root");
+    package_at(
+        root.path().join("selected"),
+        "selected",
+        "pub fn selected() {}\n",
+    );
+    package_at(
+        root.path().join("unselected"),
+        "unselected",
+        "pub fn unselected() {}\n",
+    );
+
+    let output = run(root.path(), ["--json", "--package", "selected"]);
+    assert_success(&output);
+    let report: Value = serde_json::from_slice(&output.stdout).expect("parse JSON report");
+    let project_targets = report["configuration"]["project_targets"]
+        .as_array()
+        .expect("project targets array");
+    assert_eq!(project_targets.len(), 1);
+    assert_eq!(
+        project_targets[0]["project_root"],
+        serde_json::json!(
+            root.path()
+                .join("selected")
+                .canonicalize()
+                .expect("canonical Root")
+        )
+    );
+}
+
+#[test]
 fn excluded_malformed_root_rust_does_not_abort_package_report() {
     let root = TempDir::new().expect("create Root");
     package_at(root.path().join("member"), "member", "pub fn member() {}\n");

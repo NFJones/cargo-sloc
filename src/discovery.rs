@@ -206,6 +206,9 @@ pub fn discover(selection: &Selection) -> Result<Inventory, AppError> {
                 .then_with(|| left.manifest_path.cmp(&right.manifest_path))
                 .then_with(|| left.id.cmp(&right.id))
         });
+        if packages.is_empty() {
+            continue;
+        }
         let root_package_edition = loaded
             .metadata
             .packages

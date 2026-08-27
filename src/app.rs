@@ -180,6 +180,7 @@ pub(crate) fn execute_prepared_with_cache(
         };
     let routed = match crate::metrics::phase(crate::metrics::Phase::Accounting, || {
         crate::routed_accounting::resolve(
+            selection.root_files,
             &configured,
             &sources,
             &generic_sources,

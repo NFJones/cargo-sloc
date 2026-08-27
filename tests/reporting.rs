@@ -91,6 +91,22 @@ fn mixed_package_and_root_scopes_are_both_visible_and_filterable() {
 }
 
 #[test]
+fn excluded_malformed_root_rust_does_not_abort_package_report() {
+    let root = TempDir::new().expect("create Root");
+    package_at(root.path().join("member"), "member", "pub fn member() {}\n");
+    write(root.path().join("excluded.rs"), "fn malformed( {\n");
+
+    let output = run(root.path(), ["--json", "--root-files", "exclude"]);
+    assert_success(&output);
+    assert!(output.stderr.is_empty());
+    let report: Value = serde_json::from_slice(&output.stdout).expect("parse JSON report");
+    let rows = report["rows"].as_array().expect("rows array");
+    assert!(!rows.is_empty());
+    assert!(rows.iter().all(|row| row["scope"]["kind"] == "package"));
+    assert!(rows.iter().all(|row| row["scope"]["name"] == "member"));
+}
+
+#[test]
 fn mixed_language_reports_merge_rust_extensions_and_shebang_sources() {
     let root = package("mixed", "pub fn rust() {}\n");
     write(

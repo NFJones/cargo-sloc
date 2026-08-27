@@ -17,6 +17,7 @@ use crate::error::AppError;
 use crate::generic_source::{
     FileDisposition, FileRecord, GenericSourceInventory, PhysicalFileId, physical_identity_for_path,
 };
+use crate::model::RootFilePolicy;
 use crate::rust_source::{PackageSources, ReachableSource, SourceInventory};
 
 /// Fully validated per-file accounting for one invocation.
@@ -53,6 +54,7 @@ enum RustWork<'a> {
 
 /// Resolves ownership and accounts every eligible root-ledger record once.
 pub(crate) fn resolve(
+    root_files: RootFilePolicy,
     configured: &ConfiguredInventory,
     sources: &SourceInventory,
     inventory: &GenericSourceInventory,
@@ -61,21 +63,9 @@ pub(crate) fn resolve(
     let packages = package_info(configured)?;
     let claims = rust_claims(sources)?;
     let records = reconcile_rust_claims(inventory, &claims, &packages);
-    let ledger_ids = records
-        .iter()
-        .map(|record| record.identity.clone())
-        .collect::<BTreeSet<_>>();
-    for identity in claims.keys() {
-        if !ledger_ids.contains(identity) {
-            return Err(AppError::ReportInvariant(format!(
-                "reachable Rust identity {identity:?} is absent from the Root source inventory"
-            )));
-        }
-    }
-
-    let mut rust_work = Vec::new();
-    let mut generic_work = Vec::new();
-    for record in &records {
+    let mut eligible_records = Vec::new();
+    let mut excluded_ledger_ids = BTreeSet::new();
+    for record in records {
         let file_claims = claims
             .get(&record.identity)
             .map(Vec::as_slice)
@@ -86,16 +76,44 @@ pub(crate) fn resolve(
             file_claims,
             &packages,
         )?;
+        if root_files == RootFilePolicy::Exclude && matches!(scope, ScopeId::Root { .. }) {
+            excluded_ledger_ids.insert(record.identity.clone());
+            continue;
+        }
+        eligible_records.push((record, scope));
+    }
+    let ledger_ids = eligible_records
+        .iter()
+        .map(|(record, _)| record.identity.clone())
+        .collect::<BTreeSet<_>>();
+    for identity in claims.keys() {
+        if !ledger_ids.contains(identity) && !excluded_ledger_ids.contains(identity) {
+            return Err(AppError::ReportInvariant(format!(
+                "reachable Rust identity {identity:?} is absent from the Root source inventory"
+            )));
+        }
+    }
+
+    let mut rust_work = Vec::new();
+    let mut generic_work = Vec::new();
+    for (record, scope) in &eligible_records {
+        let file_claims = claims
+            .get(&record.identity)
+            .map(Vec::as_slice)
+            .unwrap_or(&[]);
         if !file_claims.is_empty() {
             rust_work.push(RustWork::Configured {
                 record,
-                scope,
+                scope: scope.clone(),
                 claims: file_claims.to_vec(),
             });
         } else if is_rust(&record.representative_path) {
-            rust_work.push(RustWork::Unconfigured { record, scope });
+            rust_work.push(RustWork::Unconfigured {
+                record,
+                scope: scope.clone(),
+            });
         } else {
-            generic_work.push((record, scope));
+            generic_work.push((record, scope.clone()));
         }
     }
 
@@ -403,8 +421,14 @@ mod tests {
         let canonical_root = root.path().canonicalize().expect("canonical Root");
         let mut cache = crate::tokei_accounting::AccountingCache::default();
 
-        let accounting = resolve(&configured, &sources, &inventory, &mut cache)
-            .expect("resolve root accounting");
+        let accounting = resolve(
+            RootFilePolicy::Include,
+            &configured,
+            &sources,
+            &inventory,
+            &mut cache,
+        )
+        .expect("resolve root accounting");
 
         assert_eq!(accounting.contributions.len(), 2);
         assert!(accounting.contributions.iter().all(|contribution| {
@@ -448,8 +472,14 @@ mod tests {
 
         let (configured, sources, inventory) = pipeline(root.path());
         let mut cache = crate::tokei_accounting::AccountingCache::default();
-        let accounting = resolve(&configured, &sources, &inventory, &mut cache)
-            .expect("resolve nested package accounting");
+        let accounting = resolve(
+            RootFilePolicy::Include,
+            &configured,
+            &sources,
+            &inventory,
+            &mut cache,
+        )
+        .expect("resolve nested package accounting");
         let orphan = accounting
             .contributions
             .iter()
@@ -495,8 +525,14 @@ mod tests {
         );
         let mut cache = crate::tokei_accounting::AccountingCache::default();
 
-        let accounting = resolve(&configured, &sources, &inventory, &mut cache)
-            .expect("resolve reachable ignored Rust module");
+        let accounting = resolve(
+            RootFilePolicy::Include,
+            &configured,
+            &sources,
+            &inventory,
+            &mut cache,
+        )
+        .expect("resolve reachable ignored Rust module");
         let contributions = accounting
             .contributions
             .iter()
@@ -533,8 +569,14 @@ mod tests {
 
         let (configured, sources, inventory) = pipeline(root.path());
         let mut cache = crate::tokei_accounting::AccountingCache::default();
-        let accounting = resolve(&configured, &sources, &inventory, &mut cache)
-            .expect("resolve shared source accounting");
+        let accounting = resolve(
+            RootFilePolicy::Include,
+            &configured,
+            &sources,
+            &inventory,
+            &mut cache,
+        )
+        .expect("resolve shared source accounting");
         let shared_identity =
             crate::generic_source::physical_identity_for_path(&root.path().join("shared.rs"))
                 .expect("shared physical identity");
@@ -584,8 +626,14 @@ mod tests {
         assert_eq!(record.representative_path, root.path().join("a/source.js"));
         let mut cache = crate::tokei_accounting::AccountingCache::default();
 
-        let accounting = resolve(&configured, &sources, &inventory, &mut cache)
-            .expect("resolve cross-package hard link");
+        let accounting = resolve(
+            RootFilePolicy::Include,
+            &configured,
+            &sources,
+            &inventory,
+            &mut cache,
+        )
+        .expect("resolve cross-package hard link");
         let contribution = accounting
             .contributions
             .iter()
@@ -623,8 +671,14 @@ mod tests {
         assert_eq!(record.representative_path, root.path().join("a.py"));
         let mut cache = crate::tokei_accounting::AccountingCache::default();
 
-        let accounting = resolve(&configured, &sources, &inventory, &mut cache)
-            .expect("resolve hard-linked Rust accounting");
+        let accounting = resolve(
+            RootFilePolicy::Include,
+            &configured,
+            &sources,
+            &inventory,
+            &mut cache,
+        )
+        .expect("resolve hard-linked Rust accounting");
         let contributions = accounting
             .contributions
             .iter()

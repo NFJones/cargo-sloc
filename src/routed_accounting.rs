@@ -49,6 +49,7 @@ enum RustWork<'a> {
     Unconfigured {
         record: &'a crate::generic_source::FileRecord,
         scope: ScopeId,
+        path: &'a Path,
     },
 }
 
@@ -117,13 +118,18 @@ pub(crate) fn resolve(
                 scope: scope.clone(),
                 claims: file_claims.to_vec(),
             });
-        } else if is_rust(&record.representative_path) {
+        } else if let Some(path) = record.aliases.iter().find(|path| is_rust(path)) {
             rust_work.push(RustWork::Unconfigured {
                 record,
                 scope: scope.clone(),
+                path,
             });
-        } else {
-            generic_work.push((record, scope.clone()));
+        } else if let Some(path) = record
+            .aliases
+            .iter()
+            .find(|path| crate::tokei_accounting::recognize(path, &record.bytes).is_some())
+        {
+            generic_work.push((record, scope.clone(), path));
         }
     }
 
@@ -134,12 +140,9 @@ pub(crate) fn resolve(
     crate::tokei_accounting::AccountingCache::begin_refresh(tokei_cache);
     let generic_result = generic_work
         .into_iter()
-        .map(|(record, scope)| {
-            let result = crate::tokei_accounting::account_file_with_cache(
-                &record.representative_path,
-                &record.bytes,
-                tokei_cache,
-            )?;
+        .map(|(record, scope, path)| {
+            let result =
+                crate::tokei_accounting::account_file_with_cache(path, &record.bytes, tokei_cache)?;
             Ok(result.map(|(language, counts)| FileContribution {
                 identity: record.identity.clone(),
                 scope,
@@ -256,17 +259,18 @@ fn account_rust_file(work: &RustWork<'_>) -> Result<FileContribution, AppError> 
                 counts,
             })
         }
-        RustWork::Unconfigured { record, scope } => Ok(FileContribution {
+        RustWork::Unconfigured {
+            record,
+            scope,
+            path,
+        } => Ok(FileContribution {
             identity: record.identity.clone(),
             scope: scope.clone(),
             route: AccountingRoute::UnconfiguredRust,
             language: LanguageId::RUST_UNCONFIGURED,
             engine: AccountingEngine::Rust,
             precision: AccountingPrecision::Unconfigured,
-            counts: crate::rust_accounting::account_unconfigured(
-                &record.representative_path,
-                &record.bytes,
-            )?,
+            counts: crate::rust_accounting::account_unconfigured(path, &record.bytes)?,
         }),
     }
 }
@@ -699,6 +703,78 @@ mod tests {
         assert_eq!(contributions[0].route, AccountingRoute::ConfiguredRust);
         assert_eq!(contributions[0].language, LanguageId::RUST);
         assert_eq!(contributions[0].counts.files, 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unconfigured_rust_hard_link_uses_a_nonrepresentative_rust_alias() {
+        let root = TempDir::new().expect("create Root");
+        write(root.path().join("a"), "pub fn rust() {}\n");
+        fs::hard_link(root.path().join("a"), root.path().join("z.rs"))
+            .expect("create Rust hard-link alias");
+
+        let configured = ConfiguredInventory::default();
+        let sources = SourceInventory::default();
+        let inventory = crate::generic_source::discover_root(
+            root.path(),
+            &configured,
+            crate::tokei_accounting::is_candidate_path,
+        )
+        .expect("discover hard-linked source");
+        let mut cache = crate::tokei_accounting::AccountingCache::default();
+
+        let accounting = resolve(
+            RootFilePolicy::Include,
+            &configured,
+            &sources,
+            &inventory,
+            &mut cache,
+        )
+        .expect("resolve hard-linked Rust accounting");
+
+        assert_eq!(accounting.contributions.len(), 1);
+        assert_eq!(
+            accounting.contributions[0].route,
+            AccountingRoute::UnconfiguredRust
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn generic_hard_link_uses_a_nonrepresentative_recognized_alias() {
+        let root = TempDir::new().expect("create Root");
+        write(root.path().join("a"), "print('python')\n");
+        fs::hard_link(root.path().join("a"), root.path().join("z.py"))
+            .expect("create Python hard-link alias");
+
+        let configured = ConfiguredInventory::default();
+        let sources = SourceInventory::default();
+        let inventory = crate::generic_source::discover_root(
+            root.path(),
+            &configured,
+            crate::tokei_accounting::is_candidate_path,
+        )
+        .expect("discover hard-linked source");
+        let mut cache = crate::tokei_accounting::AccountingCache::default();
+
+        let accounting = resolve(
+            RootFilePolicy::Include,
+            &configured,
+            &sources,
+            &inventory,
+            &mut cache,
+        )
+        .expect("resolve hard-linked Python accounting");
+
+        assert_eq!(accounting.contributions.len(), 1);
+        assert!(matches!(
+            accounting.contributions[0].route,
+            AccountingRoute::Tokei(_)
+        ));
+        assert_eq!(
+            accounting.contributions[0].language.display_name(),
+            "Python"
+        );
     }
 
     #[test]

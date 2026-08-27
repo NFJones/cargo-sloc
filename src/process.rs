@@ -55,8 +55,8 @@ extern "C" fn cancellation_handler(signal: libc::c_int) {
         unsafe {
             libc::kill(-process_group, signal);
         }
-        CANCELLATION_SIGNAL.store(signal, Ordering::Relaxed);
     }
+    CANCELLATION_SIGNAL.store(signal, Ordering::Relaxed);
 }
 
 #[cfg(unix)]
@@ -83,8 +83,24 @@ impl Drop for ActiveProcessGroup {
             Ordering::AcqRel,
             Ordering::Acquire,
         );
-        CANCELLATION_SIGNAL.store(0, Ordering::Release);
     }
+}
+
+/// Starts one command-scoped cancellation observation window.
+pub(crate) fn begin_cancellation_scope() {
+    #[cfg(unix)]
+    CANCELLATION_SIGNAL.store(0, Ordering::Release);
+}
+
+/// Returns the signal observed during the current command, if any.
+pub(crate) fn cancellation_signal() -> Option<i32> {
+    #[cfg(unix)]
+    {
+        let signal = CANCELLATION_SIGNAL.load(Ordering::Acquire);
+        (signal != 0).then_some(signal)
+    }
+    #[cfg(not(unix))]
+    None
 }
 
 /// Complete bounded output from a subprocess.
@@ -307,6 +323,7 @@ fn wait_with_notifications(
     loop {
         let cancellation = CANCELLATION_SIGNAL.load(Ordering::Acquire);
         if cancellation != 0 {
+            terminate_process(process_id);
             return Err(ProcessError::Cancelled {
                 purpose,
                 signal: cancellation,
@@ -329,7 +346,7 @@ fn wait_with_notifications(
                 timeout: limits.timeout,
             });
         }
-        match receiver.recv_timeout(remaining) {
+        match receiver.recv_timeout(remaining.min(Duration::from_millis(10))) {
             Ok(ProcessEvent::Exited(result)) => match result {
                 Ok(exit_status) => status = Some(exit_status),
                 Err(source) => {
@@ -351,7 +368,7 @@ fn wait_with_notifications(
                     limit: limits.stream_bytes,
                 });
             }
-            Err(RecvTimeoutError::Timeout) => {
+            Err(RecvTimeoutError::Timeout) if started.elapsed() >= limits.timeout => {
                 if status.is_none() {
                     terminate_process(process_id);
                 }
@@ -360,6 +377,7 @@ fn wait_with_notifications(
                     timeout: limits.timeout,
                 });
             }
+            Err(RecvTimeoutError::Timeout) => continue,
             Err(RecvTimeoutError::Disconnected) => {
                 if status.is_none() {
                     terminate_process(process_id);
@@ -680,6 +698,54 @@ mod tests {
         .expect_err("cancellation signal must interrupt the active process group");
 
         assert!(matches!(error, ProcessError::Cancelled { signal, .. } if signal == libc::SIGTERM));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn cancellation_terminates_a_signal_ignoring_process_group() {
+        install_cancellation_handler();
+        let directory = tempfile::tempdir().expect("create PID directory");
+        let pid_file = directory.path().join("ignoring.pid");
+        let script = format!(
+            "trap '' TERM; echo $$ > \"{}\"; sleep 0.1; kill -TERM \"$PPID\"; sleep 30",
+            pid_file.display()
+        );
+        let mut command = Command::new("sh");
+        command.args(["-c", &script]);
+
+        let error = run_with_limits(
+            &mut command,
+            "signal-ignoring cancellation probe".to_owned(),
+            Limits {
+                timeout: Duration::from_secs(5),
+                stream_bytes: 1024,
+            },
+        )
+        .expect_err("cancellation must terminate the signal-ignoring process group");
+        assert!(matches!(error, ProcessError::Cancelled { signal, .. } if signal == libc::SIGTERM));
+
+        let pid = std::fs::read_to_string(&pid_file)
+            .expect("read signal-ignoring child PID")
+            .trim()
+            .parse::<i32>()
+            .expect("parse signal-ignoring child PID");
+        let status = std::fs::read_to_string(format!("/proc/{pid}/stat"));
+        assert!(
+            status.is_err() || status.is_ok_and(|status| status.contains(") Z ")),
+            "signal-ignoring child {pid} remained runnable"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cancellation_signal_is_recorded_without_an_active_process_group() {
+        begin_cancellation_scope();
+        ACTIVE_PROCESS_GROUP.store(0, Ordering::Release);
+
+        cancellation_handler(libc::SIGTERM);
+
+        assert_eq!(cancellation_signal(), Some(libc::SIGTERM));
+        begin_cancellation_scope();
     }
 
     #[cfg(target_os = "linux")]

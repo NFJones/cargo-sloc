@@ -310,6 +310,18 @@ fn malformed_cfg_diagnostics_name_the_real_source_file() {
     for (name, source) in [
         ("malformed-module-cfg", "#[cfg(not())]\nmod helper;\n"),
         ("malformed-item-cfg", "#[cfg(not())]\npub fn item() {}\n"),
+        (
+            "malformed-all-cfg",
+            "#[cfg(all(not(unix, windows), unix))]\npub fn item() {}\n",
+        ),
+        (
+            "malformed-any-cfg",
+            "#[cfg(any(not(unix, windows), unix))]\npub fn item() {}\n",
+        ),
+        (
+            "malformed-not-cfg",
+            "#[cfg(not(not(unix, windows)))]\npub fn item() {}\n",
+        ),
     ] {
         let root = simple_package(name, source);
         let output = Command::new(env!("CARGO_BIN_EXE_cargo-sloc"))
@@ -323,6 +335,33 @@ fn malformed_cfg_diagnostics_name_the_real_source_file() {
         assert!(stderr.contains("src/lib.rs"), "stderr: {stderr}");
         assert!(!stderr.contains("<syntax>"), "stderr: {stderr}");
     }
+}
+
+#[test]
+fn malformed_cfg_inside_an_inactive_module_is_ignored() {
+    let root = simple_package(
+        "inactive-malformed-cfg",
+        r#"#[cfg(any())]
+mod disabled {
+    #[cfg(not(unix, windows))]
+    fn malformed() {}
+}
+
+pub fn live() {}
+"#,
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_cargo-sloc"))
+        .arg(root.path())
+        .output()
+        .expect("run cargo-sloc");
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(output.stderr.is_empty());
 }
 
 #[test]
@@ -344,6 +383,8 @@ pub fn hidden_value() {}
 pub fn disabled_feature() {}
 #[cfg(target_os = "windows")]
 pub fn other_target() {}
+#[cfg(target_os = "definitely-not-an-os")]
+pub fn typo_target() {}
 "#,
     );
 
@@ -353,7 +394,7 @@ pub fn other_target() {}
         .iter()
         .filter(|warning| warning.code == "unknown-cfg")
         .collect();
-    assert_eq!(unknown.len(), 2);
+    assert_eq!(unknown.len(), 3);
     assert!(
         unknown
             .iter()
@@ -369,6 +410,11 @@ pub fn other_target() {}
             .iter()
             .any(|warning| warning.message.contains("mystery = \"value\""))
     );
+    assert!(unknown.iter().any(|warning| {
+        warning
+            .message
+            .contains("target_os = \"definitely-not-an-os\"")
+    }));
     assert!(
         unknown
             .iter()
@@ -377,7 +423,7 @@ pub fn other_target() {}
     assert!(
         unknown
             .iter()
-            .all(|warning| !warning.message.contains("target_os"))
+            .all(|warning| !warning.message.contains("target_os = \"windows\""))
     );
 }
 

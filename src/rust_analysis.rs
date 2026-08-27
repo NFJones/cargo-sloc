@@ -251,13 +251,19 @@ impl FileAnalysis {
 
         for (index, (_, context)) in contexts.iter().enumerate() {
             let mut unknown = BTreeSet::new();
+            let mut inactive_ancestors = Vec::new();
             for (group_index, group) in self.attributes.iter().enumerate() {
+                inactive_ancestors.retain(|end| *end > group.range.start);
+                if !inactive_ancestors.is_empty() {
+                    continue;
+                }
                 let state = evaluate_effects(&group.effects, index, &predicates, false, path)?;
                 if !state.active
                     || (state.harness_only
                         && !(context.provenance == ContextKind::Test && context.harness))
                 {
                     inactive_by_group[group_index].1.set(index);
+                    inactive_ancestors.push(group.range.end);
                 }
                 collect_unknown_effects(
                     &group.effects,
@@ -712,7 +718,7 @@ fn collect_unknown_expr(
                 CfgOption::KeyValue { name, value } if name == "feature" => {
                     context.recognized_features.contains(value)
                 }
-                CfgOption::KeyValue { name, .. } => context.recognized_cfg_names.contains(name),
+                CfgOption::KeyValue { .. } => context.recognized_cfg_options.contains(option),
             };
             if !recognized {
                 unknown.insert(format_cfg_option(option));
@@ -775,7 +781,7 @@ impl PredicateTable {
         context_index: usize,
         path: &Path,
     ) -> Result<bool, AppError> {
-        if let CfgExpr::Invalid(message) = expression {
+        if let Some(message) = invalid_cfg_message(expression) {
             return Err(attribute_error(path, message));
         }
         self.values
@@ -787,6 +793,16 @@ impl PredicateTable {
                     path.display()
                 ))
             })
+    }
+}
+
+fn invalid_cfg_message(expression: &CfgExpr) -> Option<&str> {
+    match expression {
+        CfgExpr::Invalid(message) => Some(message),
+        CfgExpr::All(values) | CfgExpr::Any(values) | CfgExpr::Not(values) => {
+            values.iter().find_map(invalid_cfg_message)
+        }
+        CfgExpr::True | CfgExpr::False | CfgExpr::Option(_) => None,
     }
 }
 

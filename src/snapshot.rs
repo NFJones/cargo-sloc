@@ -15,7 +15,7 @@ use crate::cli::ParseOutcome;
 use crate::model::Selection;
 
 const SNAPSHOT_VERSION: u32 = 2;
-const PREPARATION_VERSION: u32 = 2;
+const PREPARATION_VERSION: u32 = 3;
 const CACHE_DIRECTORY: &str = "cargo-sloc";
 const ROOT_TRAVERSAL_POLICY_VERSION: u32 = 1;
 const IGNORE_POLICY_VERSION: u32 = 1;
@@ -924,7 +924,7 @@ impl FileStamp {
 
 fn preparation_fingerprint(selection: &Selection) -> io::Result<String> {
     let mut state = Digest::new();
-    state.add(b"cargo-sloc-preparation-v1");
+    state.add(b"cargo-sloc-preparation-v2");
     state.add(env!("CARGO_PKG_VERSION").as_bytes());
     state.add(compatibility_digest().as_bytes());
     hash_selection(selection, &mut state)?;
@@ -933,6 +933,7 @@ fn preparation_fingerprint(selection: &Selection) -> io::Result<String> {
         selection.root.as_path(),
         selection.root.as_path(),
         &mut state,
+        &mut visited,
     )?;
     hash_implicit_target_topology(selection.root.as_path(), &mut state)?;
     hash_ancestor_configuration(selection.root.as_path(), &mut state, &mut visited)?;
@@ -942,13 +943,23 @@ fn preparation_fingerprint(selection: &Selection) -> io::Result<String> {
     Ok(state.finish())
 }
 
-fn hash_preparation_tree(root: &Path, path: &Path, state: &mut Digest) -> io::Result<()> {
+fn hash_preparation_tree(
+    root: &Path,
+    path: &Path,
+    state: &mut Digest,
+    visited: &mut BTreeSet<PathBuf>,
+) -> io::Result<()> {
     let metadata = fs::symlink_metadata(path)?;
     let relative = path.strip_prefix(root).unwrap_or(path);
     if metadata.file_type().is_symlink() {
         if preparation_file(path) {
             hash_path(relative, state)?;
+            hash_metadata(&metadata, state);
             hash_path(&fs::read_link(path)?, state)?;
+            let canonical = path.canonicalize()?;
+            if visited.insert(canonical.clone()) {
+                hash_external(&canonical, state, visited)?;
+            }
         }
         return Ok(());
     }
@@ -969,7 +980,7 @@ fn hash_preparation_tree(root: &Path, path: &Path, state: &mut Digest) -> io::Re
         if excluded_preparation_directory(&entry) {
             continue;
         }
-        hash_preparation_tree(root, &entry.path(), state)?;
+        hash_preparation_tree(root, &entry.path(), state, visited)?;
     }
     Ok(())
 }
@@ -1641,6 +1652,76 @@ mod tests {
         assert_ne!(
             before_target,
             preparation_fingerprint(&selection).expect("implicit target preparation fingerprint")
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinked_preparation_inputs_change_when_their_targets_change() {
+        use std::os::unix::fs::symlink;
+
+        for (link, target) in [
+            ("rust-toolchain", "toolchain-target"),
+            (".cargo/config.toml", "config-target.toml"),
+        ] {
+            let root = package("symlinked-preparation-input");
+            let target = root.path().join(target);
+            fs::write(&target, "# first preparation input\n")
+                .expect("write preparation input target");
+            let link = root.path().join(link);
+            fs::create_dir_all(link.parent().expect("preparation link parent"))
+                .expect("create preparation link parent");
+            symlink(&target, &link).expect("create preparation input symlink");
+
+            let selection = selection(root.path());
+            let before =
+                preparation_fingerprint(&selection).expect("first symlink preparation fingerprint");
+            fs::write(&target, "# changed preparation input\n")
+                .expect("change preparation input target");
+            let after = preparation_fingerprint(&selection)
+                .expect("changed symlink preparation fingerprint");
+
+            assert_ne!(before, after, "symlinked preparation input {link:?}");
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinked_configuration_target_rebuilds_persistent_and_resident_preparation() {
+        use std::os::unix::fs::symlink;
+
+        let root = package("symlinked-preparation-cache");
+        let target = root.path().join("config-target.toml");
+        fs::write(&target, "# first configuration\n").expect("write configuration target");
+        let link = root.path().join(".cargo/config.toml");
+        fs::create_dir_all(link.parent().expect("configuration link parent"))
+            .expect("create configuration link parent");
+        symlink(&target, &link).expect("create configuration symlink");
+
+        let selection = selection(root.path());
+        let cache = tempfile::tempdir().expect("create snapshot cache");
+        assert_eq!(run_with_cache(selection.clone(), cache.path()).exit_code, 0);
+
+        fs::write(&target, "# changed configuration\n").expect("change configuration target");
+        let persistent = measured(|| run_with_cache(selection.clone(), cache.path()));
+        assert_eq!(persistent.output.exit_code, 0);
+        assert_eq!(persistent.metrics.caches.preparation_hits, 0);
+        assert!(persistent.metrics.subprocesses > 0);
+
+        let mut session = ResidentSession::from_selection(selection);
+        assert_eq!(session.refresh_with_metrics().output.exit_code, 0);
+        fs::write(&target, "# resident configuration change\n")
+            .expect("change resident configuration target");
+        let resident = session.refresh_with_metrics();
+        assert_eq!(resident.output.exit_code, 0);
+        assert!(resident.metrics.subprocesses > 0);
+        assert_eq!(
+            resident
+                .metrics
+                .caches
+                .outcomes
+                .get("snapshot.miss.resident-configuration-changed"),
+            Some(&1)
         );
     }
 

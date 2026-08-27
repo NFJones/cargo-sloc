@@ -58,7 +58,7 @@ package:
 
 # Package, extract, install, and exercise the exact published crate artifact.
 install-smoke:
-    ./scripts/package-smoke.sh
+    bash ./scripts/package-smoke.sh
 
 # Run the complete release-readiness suite on a clean checkout.
 release-check: ci bench-smoke install-smoke

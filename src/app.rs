@@ -51,6 +51,7 @@ where
     I: IntoIterator<Item = T>,
     T: Into<OsString>,
 {
+    crate::process::begin_cancellation_scope();
     let current_directory = match std::env::current_dir() {
         Ok(directory) => directory,
         Err(error) => return operational_error(AppError::CurrentDirectory(error)),
@@ -66,6 +67,9 @@ where
             exit_code,
         },
         Ok(ParseOutcome::Selection(selection)) => {
+            if let Some(output) = cancellation_output() {
+                return output;
+            }
             if snapshot {
                 crate::snapshot::run(selection)
             } else {
@@ -84,7 +88,9 @@ where
 
 pub(crate) fn execute(selection: Selection) -> ProcessOutput {
     match prepare(&selection) {
-        Ok(prepared) => execute_prepared(selection, prepared),
+        Ok(prepared) => {
+            cancellation_output().unwrap_or_else(|| execute_prepared(selection, prepared))
+        }
         Err(error) => operational_error(error),
     }
 }
@@ -122,6 +128,9 @@ pub(crate) fn execute_prepared_with_cache(
     generic_source_cache: &mut crate::generic_source::SourceCache,
     generic_accounting_cache: &mut crate::tokei_accounting::AccountingCache,
 ) -> ProcessOutput {
+    if let Some(output) = cancellation_output() {
+        return output;
+    }
     let PreparedExecution {
         inventory,
         configured,
@@ -152,6 +161,9 @@ pub(crate) fn execute_prepared_with_cache(
         Ok(sources) => sources,
         Err(error) => return operational_error(error),
     };
+    if let Some(output) = cancellation_output() {
+        return output;
+    }
     crate::metrics::record_sources(
         sources
             .packages
@@ -183,6 +195,9 @@ pub(crate) fn execute_prepared_with_cache(
             Ok(sources) => sources,
             Err(error) => return operational_error(error),
         };
+    if let Some(output) = cancellation_output() {
+        return output;
+    }
     let routed = match crate::metrics::phase(crate::metrics::Phase::Accounting, || {
         crate::routed_accounting::resolve(
             selection.root_files,
@@ -195,6 +210,9 @@ pub(crate) fn execute_prepared_with_cache(
         Ok(accounting) => accounting,
         Err(error) => return operational_error(error),
     };
+    if let Some(output) = cancellation_output() {
+        return output;
+    }
     crate::metrics::phase(crate::metrics::Phase::Rendering, || {
         let mut report = Report::empty(selection);
         report.warnings = inventory.warnings;
@@ -234,4 +252,12 @@ pub(crate) fn operational_error(error: AppError) -> ProcessOutput {
         stderr: format!("cargo-sloc: {error}\n").into_bytes(),
         exit_code: 1,
     }
+}
+
+fn cancellation_output() -> Option<ProcessOutput> {
+    crate::process::cancellation_signal().map(|signal| ProcessOutput {
+        stdout: Vec::new(),
+        stderr: format!("cargo-sloc: cancelled by signal {signal}\n").into_bytes(),
+        exit_code: 1,
+    })
 }

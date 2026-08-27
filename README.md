@@ -163,7 +163,7 @@ just install-smoke
 
 `just release-check` runs the complete local release-readiness suite. The
 project is licensed under the Apache License, Version 2.0; see
-[COPYING](COPYING). Release history is recorded in [CHANGELOG.md](CHANGELOG.md).
+[COPYING](COPYING).
 
 ## References
 

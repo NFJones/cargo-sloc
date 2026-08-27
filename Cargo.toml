@@ -17,9 +17,9 @@ include = [
     "/README.md",
     "/SPEC.md",
     "/COPYING",
-    "/CHANGELOG.md",
     "/AGENTS.md",
     "/Justfile",
+    "/scripts/package-smoke.sh",
     "/.gitignore",
 ]
 keywords = ["cargo", "sloc", "rust", "cfg", "features"]
@@ -31,6 +31,7 @@ cargo_metadata = "0.23.1"
 cargo_toml = "1.0.0"
 clap = { version = "4.5.60", features = ["derive"] }
 comfy-table = { version = "7.1.4", default-features = false }
+globset = "0.4.20"
 guppy = "0.17.26"
 ignore = "0.4.33"
 ra_ap_syntax = "=0.0.349"

@@ -12,7 +12,7 @@ use crate::generic_source::GenericSourceInventory;
 use crate::model::{Counts, TestCount};
 
 /// Version of cargo-sloc's Tokei recognition and conversion behavior.
-pub const ADAPTER_VERSION: u32 = 1;
+pub const ADAPTER_VERSION: u32 = 2;
 
 /// Pinned Tokei catalog compatibility version.
 pub const CATALOG_VERSION: &str = "tokei-14.0.0";
@@ -93,6 +93,11 @@ pub fn is_candidate_path(path: &Path) -> bool {
             .and_then(LanguageType::from_file_extension)
             .is_some()
         || path.extension().is_none()
+}
+
+/// Returns whether recognizing this candidate requires a bounded shebang probe.
+pub fn requires_shebang_probe(path: &Path) -> bool {
+    !is_rust(path) && special_filename(path).is_none() && path.extension().is_none()
 }
 
 /// Recognizes a non-Rust language using path metadata and retained bytes.
@@ -208,35 +213,51 @@ fn account_source(
         return Ok(None);
     };
     let stats = language.parse_from_slice(bytes, config).summarise();
+    let (blanks, comments, code) =
+        physical_line_counts(bytes, stats.blanks, stats.comments, stats.code);
     Ok(Some((
         language,
         Counts {
             files: 1,
-            lines: checked_usize_sum(
-                [stats.blanks, stats.comments, stats.code],
-                "counting Tokei source lines",
-            )?,
-            blanks: checked_usize(stats.blanks, "counting Tokei blank lines")?,
-            comments: checked_usize(stats.comments, "counting Tokei comment lines")?,
-            code: checked_usize(stats.code, "counting Tokei code lines")?,
+            lines: checked_usize(physical_line_count(bytes), "counting Tokei source lines")?,
+            blanks: checked_usize(blanks, "counting Tokei blank lines")?,
+            comments: checked_usize(comments, "counting Tokei comment lines")?,
+            code: checked_usize(code, "counting Tokei code lines")?,
             test: TestCount::Unavailable,
         },
     )))
 }
 
-fn checked_usize(value: usize, operation: &'static str) -> Result<u64, AppError> {
-    u64::try_from(value).map_err(|_| AppError::CountOverflow(operation))
+/// Collapses recursively reported embedded-language statistics to one category
+/// per physical line in the host file.
+fn physical_line_counts(
+    bytes: &[u8],
+    blanks: usize,
+    comments: usize,
+    code: usize,
+) -> (usize, usize, usize) {
+    let lines = physical_line_count(bytes);
+    let blanks = blanks.min(lines);
+    let remaining = lines - blanks;
+    let mut comments = comments.min(remaining);
+    let mut code = code.min(remaining);
+    let excess = comments.saturating_add(code).saturating_sub(remaining);
+    let removed_code = code.min(excess);
+    code -= removed_code;
+    comments -= excess - removed_code;
+    code += remaining - comments - code;
+    (blanks, comments, code)
 }
 
-fn checked_usize_sum<const N: usize>(
-    values: [usize; N],
-    operation: &'static str,
-) -> Result<u64, AppError> {
-    values.into_iter().try_fold(0_u64, |total, value| {
-        total
-            .checked_add(checked_usize(value, operation)?)
-            .ok_or(AppError::CountOverflow(operation))
-    })
+fn physical_line_count(bytes: &[u8]) -> usize {
+    if bytes.is_empty() {
+        return 0;
+    }
+    bytes.iter().filter(|byte| **byte == b'\n').count() + usize::from(!bytes.ends_with(b"\n"))
+}
+
+fn checked_usize(value: usize, operation: &'static str) -> Result<u64, AppError> {
+    u64::try_from(value).map_err(|_| AppError::CountOverflow(operation))
 }
 
 fn is_rust(path: &Path) -> bool {
@@ -413,6 +434,31 @@ mod tests {
         assert_eq!(rows[0].counts.files, 1);
         assert_eq!(rows[0].counts.lines, 3);
         assert_eq!(rows[0].counts.test, TestCount::Unavailable);
+    }
+
+    #[test]
+    fn embedded_inline_script_counts_its_single_physical_line_once() {
+        let inventory = GenericSourceInventory {
+            root: Default::default(),
+            packages: vec![GenericPackageSources {
+                project_root: PathBuf::from("/project"),
+                id: "package-id".to_owned(),
+                name: "app".to_owned(),
+                manifest_path: PathBuf::from("/project/Cargo.toml"),
+                files: vec![source(
+                    "/project/index.html",
+                    b"<script>const value = 1;</script>",
+                )],
+            }],
+            warnings: Vec::new(),
+        };
+
+        let rows = account(&inventory).expect("account inline embedded source");
+
+        assert_eq!(rows[0].counts.lines, 1);
+        assert_eq!(rows[0].counts.blanks, 0);
+        assert_eq!(rows[0].counts.comments, 0);
+        assert_eq!(rows[0].counts.code, 1);
     }
 
     #[test]

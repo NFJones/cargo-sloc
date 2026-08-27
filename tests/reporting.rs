@@ -136,6 +136,38 @@ fn selected_rust_source_outside_root_fails_with_a_path_diagnostic() {
     assert!(stderr.contains("outside.rs"));
 }
 
+#[cfg(unix)]
+#[test]
+fn escaping_rust_source_symlink_is_skipped_with_a_warning() {
+    use std::os::unix::fs::symlink;
+
+    let parent = TempDir::new().expect("create parent");
+    let root = parent.path().join("root");
+    let external = parent.path().join("outside.rs");
+    write(
+        root.join("Cargo.toml"),
+        "[package]\nname = \"escaping-symlink\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
+    );
+    write(external, "pub fn outside() {}\n");
+    fs::create_dir_all(root.join("src")).expect("create source directory");
+    symlink(parent.path().join("outside.rs"), root.join("src/lib.rs"))
+        .expect("create escaping source symlink");
+
+    let output = run(&root, ["--json"]);
+    assert_success(&output);
+    let report: Value = serde_json::from_slice(&output.stdout).expect("parse JSON report");
+    let rows = report["rows"].as_array().expect("rows array");
+    assert!(rows.iter().all(|row| row["language"] != "Rust"));
+    assert_eq!(report["total"]["files"], 1);
+    assert!(
+        report["warnings"]
+            .as_array()
+            .expect("warnings array")
+            .iter()
+            .any(|warning| warning["code"] == "source-symlink-outside-root")
+    );
+}
+
 #[test]
 fn configured_in_root_cache_storage_is_not_reported_as_source() {
     let root = TempDir::new().expect("create Root");
@@ -152,6 +184,26 @@ fn configured_in_root_cache_storage_is_not_reported_as_source() {
     let report: Value = serde_json::from_slice(&output.stdout).expect("parse JSON report");
     assert!(report["rows"].as_array().expect("rows array").is_empty());
     assert_eq!(report["total"]["files"], 0);
+}
+
+#[test]
+fn configured_in_root_cache_storage_is_not_discovered_as_a_package() {
+    let root = TempDir::new().expect("create Root");
+    let cache = root.path().join("cache-storage");
+    package_at(root.path().join("real"), "real", "pub fn real() {}\n");
+    package_at(cache.join("nested"), "cached", "pub fn cached() {}\n");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_cargo-sloc"))
+        .args(["--json", "--root-files", "exclude"])
+        .arg(root.path())
+        .env("CARGO_SLOC_CACHE_DIR", &cache)
+        .output()
+        .expect("run cargo-sloc with configured cache storage");
+    assert_success(&output);
+    let report: Value = serde_json::from_slice(&output.stdout).expect("parse JSON report");
+    let rows = report["rows"].as_array().expect("rows array");
+    assert!(!rows.is_empty());
+    assert!(rows.iter().all(|row| row["scope"]["name"] == "real"));
 }
 
 #[test]

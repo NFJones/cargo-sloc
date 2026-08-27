@@ -7,6 +7,7 @@ use std::process::Command;
 
 use cargo_metadata::{CargoOpt, Metadata, MetadataCommand, Package, Target};
 use cargo_toml::{Manifest, Product};
+use globset::Glob;
 use ignore::WalkBuilder;
 use serde::{Deserialize, Serialize};
 
@@ -259,6 +260,10 @@ struct LoadedMetadata {
 }
 
 fn candidate_manifests(root: &Path) -> Result<Vec<PathBuf>, AppError> {
+    let cache_root = crate::snapshot::cache_root()
+        .canonicalize()
+        .ok()
+        .filter(|path| path.starts_with(root));
     let mut builder = WalkBuilder::new(root);
     builder
         .standard_filters(false)
@@ -271,14 +276,15 @@ fn candidate_manifests(root: &Path) -> Result<Vec<PathBuf>, AppError> {
         .require_git(false)
         .follow_links(false)
         .sort_by_file_path(|left, right| left.cmp(right))
-        .filter_entry(|entry| {
+        .filter_entry(move |entry| {
             if !entry.file_type().is_some_and(|kind| kind.is_dir()) {
                 return true;
             }
-            !matches!(
-                entry.file_name().to_str(),
-                Some("target" | ".cargo-sloc" | ".git" | ".hg" | ".svn")
-            )
+            cache_root.as_ref().is_none_or(|path| entry.path() != path)
+                && !matches!(
+                    entry.file_name().to_str(),
+                    Some("target" | ".cargo-sloc" | ".git" | ".hg" | ".svn")
+                )
         });
 
     let mut manifests = Vec::new();
@@ -428,14 +434,19 @@ fn select_targets(
         let test_enabled = product.map_or(target.test, |product| product.test);
         let bench_enabled = product.is_some_and(|product| product.bench);
         let harness = product.is_none_or(|product| product.harness);
-        let canonical = format!("{}:{}", kind.selector_name(), target.name);
+        let named_selectors = selection
+            .target_includes
+            .iter()
+            .filter(|selector| target_selector_matches(selector, kind, &target.name))
+            .cloned()
+            .collect::<Vec<_>>();
+        let named_target = !named_selectors.is_empty();
         let production_requested = broad_all
             || selection
                 .target_includes
                 .contains(kind_plural_selector(kind))
             || selection.target_includes.contains(kind.selector_name())
-            || selection.target_includes.contains(&canonical);
-        let named_target = selection.target_includes.contains(&canonical);
+            || named_target;
         let test_requested = (named_target && kind == TargetKind::Test)
             || ((broad_all || selection.target_includes.contains("tests"))
                 && (kind == TargetKind::Test
@@ -453,16 +464,14 @@ fn select_targets(
         if !production_requested && !test_requested && !bench_requested {
             continue;
         }
-        if selection.target_includes.contains(&canonical) {
-            state.named_seen.insert(canonical.clone());
-        }
+        state.named_seen.extend(named_selectors);
 
         let mut contexts =
             target_contexts(kind, production_requested, test_requested, bench_requested);
         apply_target_exclusions(
             selection,
             kind,
-            &canonical,
+            &target.name,
             &mut contexts,
             &mut state.exclusions,
         );
@@ -590,7 +599,7 @@ fn target_contexts(
 fn apply_target_exclusions(
     selection: &Selection,
     kind: TargetKind,
-    canonical: &str,
+    name: &str,
     contexts: &mut BTreeSet<TargetContext>,
     matched: &mut BTreeSet<String>,
 ) {
@@ -605,7 +614,7 @@ fn apply_target_exclusions(
                 contexts.clear();
                 true
             }
-            value if value == canonical => {
+            value if target_selector_matches(value, kind, name) => {
                 contexts.clear();
                 true
             }
@@ -615,6 +624,15 @@ fn apply_target_exclusions(
             matched.insert(selector.clone());
         }
     }
+}
+
+/// Returns whether a named selector's Cargo-style glob matches one target.
+pub(crate) fn target_selector_matches(selector: &str, kind: TargetKind, name: &str) -> bool {
+    let Some((selector_kind, pattern)) = selector.split_once(':') else {
+        return false;
+    };
+    selector_kind == kind.selector_name()
+        && Glob::new(pattern).is_ok_and(|glob| glob.compile_matcher().is_match(name))
 }
 
 fn target_inventory(

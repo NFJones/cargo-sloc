@@ -338,6 +338,52 @@ fn named_test_and_bench_selectors_choose_their_target_contexts() {
 }
 
 #[test]
+fn named_target_glob_selectors_match_each_supported_target_kind() {
+    let root = target_fixture();
+
+    for (argument, pattern, kind, name, context) in [
+        (
+            "--bin",
+            "work*",
+            TargetKind::Bin,
+            "worker",
+            TargetContext::Production,
+        ),
+        (
+            "--example",
+            "dem*",
+            TargetKind::Example,
+            "demo",
+            TargetContext::Production,
+        ),
+        (
+            "--test",
+            "ap*",
+            TargetKind::Test,
+            "api",
+            TargetContext::Test,
+        ),
+        (
+            "--bench",
+            "spe*",
+            TargetKind::Bench,
+            "speed",
+            TargetContext::Bench,
+        ),
+    ] {
+        let inventory = discover(root.path(), [argument, pattern]);
+        let target = &inventory.projects[0].packages[0].targets[0];
+        assert_eq!(target.kind, kind);
+        assert_eq!(target.name, name);
+        assert_eq!(target.contexts, BTreeSet::from([context]));
+    }
+
+    let error = discover_result(root.path(), ["--bin", "missing-*"])
+        .expect_err("unmatched target pattern must fail");
+    assert!(matches!(error, AppError::UnmatchedTargetSelector(_)));
+}
+
+#[test]
 fn plural_test_and_bench_selectors_honor_manifest_flags() {
     let root = harness_fixture();
 

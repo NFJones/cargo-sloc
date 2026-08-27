@@ -191,6 +191,7 @@ dependencies = [
  "clap",
  "comfy-table",
  "criterion",
+ "globset",
  "guppy",
  "ignore",
  "libc",

@@ -59,6 +59,7 @@ pub struct SemanticContextKey {
     pub(crate) edition: String,
     pub(crate) cfg_options: BTreeSet<CfgOption>,
     pub(crate) recognized_cfg_names: BTreeSet<String>,
+    pub(crate) recognized_cfg_options: BTreeSet<CfgOption>,
     pub(crate) recognized_features: BTreeSet<String>,
     pub(crate) provenance: ContextKind,
     pub(crate) harness: bool,
@@ -70,6 +71,7 @@ impl SemanticContextKey {
             edition: edition.to_owned(),
             cfg_options: context.cfg_options.clone(),
             recognized_cfg_names: context.recognized_cfg_names.clone(),
+            recognized_cfg_options: context.recognized_cfg_options.clone(),
             recognized_features: context.recognized_features.clone(),
             provenance: context.provenance,
             harness: context.harness,
@@ -243,7 +245,9 @@ fn discover_package(
     let mut visited = BTreeSet::new();
     let mut files = BTreeMap::<PathBuf, ReachableSource>::new();
     while let Some((work, context_ids)) = queue.pop_first() {
-        let identity = source_identity(&work.path, root, warnings)?;
+        let Some(identity) = source_identity(&work.path, root, warnings)? else {
+            continue;
+        };
         let pending = context_ids
             .into_iter()
             .filter(|context| {
@@ -530,15 +534,29 @@ fn source_identity(
     path: &Path,
     root: Option<&Path>,
     warnings: &mut Vec<Warning>,
-) -> Result<PathBuf, AppError> {
+) -> Result<Option<PathBuf>, AppError> {
     match path.canonicalize() {
-        Ok(path) if root.is_some_and(|root| !path.starts_with(root)) => {
+        Ok(canonical) if root.is_some_and(|root| !canonical.starts_with(root)) => {
+            if path.starts_with(root.expect("Root checked above"))
+                && fs::symlink_metadata(path)
+                    .is_ok_and(|metadata| metadata.file_type().is_symlink())
+            {
+                warnings.push(Warning {
+                    code: "source-symlink-outside-root".to_owned(),
+                    message: format!(
+                        "skipped Rust source symlink `{}` because canonical target `{}` is outside the Root",
+                        path.display(),
+                        canonical.display()
+                    ),
+                });
+                return Ok(None);
+            }
             Err(AppError::SourceOutsideRoot {
-                path: path.to_path_buf(),
+                path: canonical,
                 root: root.expect("Root checked above").to_path_buf(),
             })
         }
-        Ok(path) => Ok(path),
+        Ok(path) => Ok(Some(path)),
         Err(_) => {
             let path = absolute_path(path)?;
             warnings.push(Warning {
@@ -548,7 +566,7 @@ fn source_identity(
                     path.display()
                 ),
             });
-            Ok(path)
+            Ok(Some(path))
         }
     }
 }

@@ -13,7 +13,10 @@ use guppy::platform::{Platform, TargetFeatures};
 use guppy::{CargoMetadata, PackageId};
 use serde::{Deserialize, Serialize};
 
-use crate::discovery::{Inventory, ProjectInventory, TargetContext, TargetInventory, TargetKind};
+use crate::discovery::{
+    Inventory, ProjectInventory, TargetContext, TargetInventory, TargetKind,
+    target_selector_matches,
+};
 use crate::error::AppError;
 use crate::model::{BuildRole, CfgOption, ContextKind, Selection};
 use crate::report::Warning;
@@ -78,6 +81,8 @@ pub struct BuildContext {
     pub cfg_options: BTreeSet<CfgOption>,
     /// Recognized built-in and toolchain cfg names, including inactive names.
     pub recognized_cfg_names: BTreeSet<String>,
+    /// Recognized built-in and toolchain cfg name/value pairs, including inactive values.
+    pub recognized_cfg_options: BTreeSet<CfgOption>,
     /// Recognized feature cfg values, including disabled declarations.
     pub recognized_features: BTreeSet<String>,
     /// Whether Cargo selects a generated harness.
@@ -280,7 +285,13 @@ fn resolve_project(
                                     cargo_target.kind.selector_name(),
                                     cargo_target.name
                                 );
-                                if selection.target_includes.contains(&selector) {
+                                if selection.target_includes.iter().any(|include| {
+                                    target_selector_matches(
+                                        include,
+                                        cargo_target.kind,
+                                        &cargo_target.name,
+                                    )
+                                }) {
                                     missing_by_named_target
                                         .entry((package.id.clone(), selector))
                                         .or_default()
@@ -321,6 +332,7 @@ fn resolve_project(
                                 probed
                             };
                             let recognized_cfg_names = recognized_cfg_names(&active_cfg);
+                            let recognized_cfg_options = recognized_cfg_options(&active_cfg);
                             let mut cfg_options = active_cfg;
                             for feature in features {
                                 cfg_options.insert(CfgOption::KeyValue {
@@ -349,6 +361,7 @@ fn resolve_project(
                                     features: features.clone(),
                                     cfg_options,
                                     recognized_cfg_names,
+                                    recognized_cfg_options,
                                     recognized_features: package.declared_features.clone(),
                                     harness: cargo_target.harness,
                                 });
@@ -388,7 +401,10 @@ fn resolve_project(
             .collect();
         for target in &package.targets {
             let selector = format!("{}:{}", target.kind.selector_name(), target.name);
-            if selection.target_includes.contains(&selector)
+            if selection
+                .target_includes
+                .iter()
+                .any(|include| target_selector_matches(include, target.kind, &target.name))
                 && !targets.iter().any(|configured| {
                     configured.kind == target.kind && configured.name == target.name
                 })
@@ -675,6 +691,63 @@ fn recognized_cfg_names(active: &BTreeSet<CfgOption>) -> BTreeSet<String> {
         CfgOption::Name(name) | CfgOption::KeyValue { name, .. } => name.clone(),
     }));
     names
+}
+
+fn recognized_cfg_options(active: &BTreeSet<CfgOption>) -> BTreeSet<CfgOption> {
+    let mut options = active
+        .iter()
+        .filter_map(|option| match option {
+            CfgOption::Name(_) => None,
+            CfgOption::KeyValue { .. } => Some(option.clone()),
+        })
+        .collect::<BTreeSet<_>>();
+    options.extend(
+        [
+            "aix",
+            "android",
+            "bitrig",
+            "darwin",
+            "dragonfly",
+            "emscripten",
+            "espidf",
+            "freebsd",
+            "fuchsia",
+            "haiku",
+            "hermit",
+            "horizon",
+            "hurd",
+            "illumos",
+            "ios",
+            "l4re",
+            "linux",
+            "macos",
+            "netbsd",
+            "none",
+            "nto",
+            "openbsd",
+            "psp",
+            "redox",
+            "solaris",
+            "solid_asp3",
+            "teeos",
+            "trusty",
+            "tvos",
+            "uefi",
+            "unknown",
+            "visionos",
+            "vxworks",
+            "wasi",
+            "watchos",
+            "windows",
+            "xous",
+        ]
+        .into_iter()
+        .map(|value| CfgOption::KeyValue {
+            name: "target_os".to_owned(),
+            value: value.to_owned(),
+        }),
+    );
+    options
 }
 
 #[cfg(test)]

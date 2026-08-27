@@ -31,8 +31,9 @@ tar -tzf "$archive" \
 
 while IFS= read -r path; do
     case "$path" in
-        .cargo_vcs_info.json|.gitignore|AGENTS.md|CHANGELOG.md|COPYING|Cargo.lock|Cargo.toml|Cargo.toml.orig|Justfile|README.md|SPEC.md) ;;
+        .cargo_vcs_info.json|.gitignore|AGENTS.md|COPYING|Cargo.lock|Cargo.toml|Cargo.toml.orig|Justfile|README.md|SPEC.md) ;;
         benches/pipeline.rs|benches/support/mod.rs) ;;
+        scripts/package-smoke.sh) ;;
         src/accountant.rs|src/app.rs|src/cli.rs|src/configuration.rs|src/discovery.rs|src/error.rs|src/generic_source.rs|src/lib.rs|src/main.rs|src/metrics.rs|src/model.rs|src/process.rs|src/report.rs|src/routed_accounting.rs|src/rust_accounting.rs|src/rust_analysis.rs|src/rust_source.rs|src/snapshot.rs|src/tokei_accounting.rs) ;;
         tests/cargo_contexts.rs|tests/cfg_spans.rs|tests/cli.rs|tests/configuration.rs|tests/discovery.rs|tests/generic_source.rs|tests/performance.rs|tests/reporting.rs|tests/rust_accounting.rs|tests/rust_source.rs|tests/support/mod.rs) ;;
         tests/fixtures/cfg-spans/all_positions.rs) ;;
@@ -48,6 +49,7 @@ for required in \
     COPYING \
     README.md \
     SPEC.md \
+    scripts/package-smoke.sh \
     src/main.rs \
     src/process.rs \
     tests/fixtures/cfg-spans/all_positions.rs \
@@ -91,7 +93,7 @@ EOF
 "$install_root/bin/cargo-sloc" "$fixture" > "$work/report.md"
 grep -Eq 'packaged-smoke.*TOML.*1.*4.*0.*0.*4.*n/a' "$work/report.md"
 grep -Eq 'Rust.*1.*3.*1.*1.*1.*0' "$work/report.md"
-grep -Eq 'Total.*All.*2.*7.*1.*1.*5.*0' "$work/report.md"
+grep -Eq 'Total.*All.*2.*7.*1.*1.*5.*n/a' "$work/report.md"
 
 "$install_root/bin/cargo-sloc" --json "$fixture" > "$work/report.json"
 grep -Fq '"name": "packaged-smoke"' "$work/report.json"

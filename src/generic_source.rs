@@ -8,6 +8,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsStr;
 use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -187,6 +188,15 @@ impl SourceCache {
         self.bytes
             .insert(identity.to_path_buf(), Arc::clone(&bytes));
         Ok(bytes)
+    }
+
+    fn shebang_prefix(&mut self, actual_path: &Path) -> Result<Vec<u8>, std::io::Error> {
+        self.dependencies.insert(actual_path.to_path_buf());
+        let mut prefix = Vec::with_capacity(128);
+        fs::File::open(actual_path)?
+            .take(128)
+            .read_to_end(&mut prefix)?;
+        Ok(prefix)
     }
 }
 
@@ -368,6 +378,28 @@ pub(crate) fn discover_root_with_cache(
             record.merge_alias(path.to_path_buf(), containing_packages);
             continue;
         }
+        if crate::tokei_accounting::requires_shebang_probe(path) {
+            match cache.shebang_prefix(path) {
+                Ok(prefix) if crate::tokei_accounting::recognize(path, &prefix).is_none() => {
+                    continue;
+                }
+                Ok(_) => {}
+                Err(error) if eligible => {
+                    return Err(AppError::GenericSourceRead {
+                        path: path.to_path_buf(),
+                        source: error,
+                    });
+                }
+                Err(error) => {
+                    warnings.push(skipped_warning(
+                        "source-unreadable",
+                        path,
+                        format!("could not read it: {error}"),
+                    ));
+                    continue;
+                }
+            }
+        }
         match cache.load(path, &canonical) {
             Ok(bytes) => {
                 records.insert(
@@ -547,5 +579,52 @@ fn skipped_warning(code: &str, path: &Path, reason: String) -> Warning {
             "skipped generic source candidate `{}` because {reason}",
             path.display()
         ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+
+    use tempfile::tempdir;
+
+    use super::{SourceCache, discover_root_with_cache};
+    use crate::configuration::ConfiguredInventory;
+    use crate::model::RootFilePolicy;
+
+    #[test]
+    fn extensionless_probe_is_limited_to_the_shebang_prefix() {
+        let root = tempdir().expect("create temporary root");
+        let path = root.path().join("unsupported");
+        fs::write(&path, vec![b'x'; 129]).expect("write extensionless candidate");
+
+        let mut cache = SourceCache::default();
+        assert_eq!(
+            cache
+                .shebang_prefix(&path)
+                .expect("read shebang prefix")
+                .len(),
+            128
+        );
+    }
+
+    #[test]
+    fn unsupported_extensionless_candidate_is_not_retained() {
+        let root = tempdir().expect("create temporary root");
+        let path = root.path().join("unsupported");
+        fs::write(&path, vec![b'x'; 129]).expect("write extensionless candidate");
+
+        let mut cache = SourceCache::default();
+        let inventory = discover_root_with_cache(
+            root.path(),
+            &ConfiguredInventory::default(),
+            RootFilePolicy::Include,
+            crate::tokei_accounting::is_candidate_path,
+            &mut cache,
+        )
+        .expect("discover generic source candidates");
+
+        assert!(inventory.root.files.is_empty());
+        assert!(cache.dependencies().contains(&path));
     }
 }

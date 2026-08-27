@@ -637,7 +637,13 @@ mod tests {
             .iter()
             .find(|record| record.identity == identity)
             .expect("shared ledger record");
-        assert_eq!(record.representative_path, root.path().join("a/source.js"));
+        assert_eq!(
+            record.representative_path,
+            root.path()
+                .join("a/source.js")
+                .canonicalize()
+                .expect("canonical representative path")
+        );
         let mut cache = crate::tokei_accounting::AccountingCache::default();
 
         let accounting = resolve(
@@ -682,7 +688,13 @@ mod tests {
             .iter()
             .find(|record| record.identity == identity)
             .expect("hard-linked source ledger record");
-        assert_eq!(record.representative_path, root.path().join("a.py"));
+        assert_eq!(
+            record.representative_path,
+            root.path()
+                .join("a.py")
+                .canonicalize()
+                .expect("canonical representative path")
+        );
         let mut cache = crate::tokei_accounting::AccountingCache::default();
 
         let accounting = resolve(

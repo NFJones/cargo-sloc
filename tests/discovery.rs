@@ -251,8 +251,10 @@ fn authoritative_metadata_runs_from_the_resolved_project_root() {
     assert_eq!(observed.len() % 2, 0);
     assert!(
         observed
-            .chunks_exact(2)
-            .all(|pair| pair == [member.as_path(), project.as_path()])
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .all(|pair| pair == &[member.as_path(), project.as_path()])
     );
 }
 

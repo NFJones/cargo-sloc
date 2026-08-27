@@ -625,6 +625,12 @@ mod tests {
         .expect("discover generic source candidates");
 
         assert!(inventory.root.files.is_empty());
-        assert!(cache.dependencies().contains(&path));
+        assert!(
+            cache.dependencies().contains(
+                &path
+                    .canonicalize()
+                    .expect("canonical unsupported candidate")
+            )
+        );
     }
 }

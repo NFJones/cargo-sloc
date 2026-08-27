@@ -2169,12 +2169,13 @@ mod tests {
 
         let first = resident_manifest(&selection, cache.path(), None, &BTreeSet::new())
             .expect("scan nested Root");
-        assert!(first.manifest.entries.contains_key(&root));
+        let canonical_root = root.canonicalize().expect("canonical nested Root");
+        assert!(first.manifest.entries.contains_key(&canonical_root));
         assert!(
             first
                 .manifest
                 .entries
-                .contains_key(&root.join("src/lib.rs"))
+                .contains_key(&canonical_root.join("src/lib.rs"))
         );
 
         fs::write(root.join("src/lib.rs"), "pub fn second() {}\n").expect("edit source");

@@ -232,6 +232,10 @@ pub(crate) fn discover_root_with_cache(
             path: root.to_path_buf(),
             source,
         })?;
+    let cache_root = crate::snapshot::cache_root()
+        .canonicalize()
+        .ok()
+        .filter(|path| path.starts_with(&root));
     cache.begin_refresh();
     let mut warnings = Vec::new();
     let mut owners = configured
@@ -268,7 +272,9 @@ pub(crate) fn discover_root_with_cache(
         .require_git(false)
         .follow_links(false)
         .sort_by_file_path(|left, right| left.cmp(right))
-        .filter_entry(move |entry| !is_structural_directory(entry.path(), &filter_root));
+        .filter_entry(move |entry| {
+            !is_structural_directory(entry.path(), &filter_root, cache_root.as_deref())
+        });
 
     for entry in builder.build() {
         let entry = entry.map_err(|source| AppError::Discovery {
@@ -429,13 +435,14 @@ fn has_nested_package_boundary(path: &Path, owner_root: &Path) -> bool {
         .any(|ancestor| ancestor.join("Cargo.toml").is_file())
 }
 
-fn is_structural_directory(path: &Path, root: &Path) -> bool {
+fn is_structural_directory(path: &Path, root: &Path, cache_root: Option<&Path>) -> bool {
     path != root
         && path.is_dir()
-        && matches!(
-            path.file_name().and_then(OsStr::to_str),
-            Some(".cargo-sloc" | ".git" | ".hg" | ".svn")
-        )
+        && (cache_root == Some(path)
+            || matches!(
+                path.file_name().and_then(OsStr::to_str),
+                Some(".cargo-sloc" | ".git" | ".hg" | ".svn")
+            ))
 }
 
 #[cfg(unix)]

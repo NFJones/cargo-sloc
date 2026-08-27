@@ -572,7 +572,7 @@ fn snapshot_project_root(selection: &Selection, cache_root: &Path) -> io::Result
     Ok(cache_root.join(digest([root.as_bytes()])))
 }
 
-fn cache_root() -> PathBuf {
+pub(crate) fn cache_root() -> PathBuf {
     if let Some(path) = std::env::var_os("CARGO_SLOC_CACHE_DIR") {
         return PathBuf::from(path);
     }

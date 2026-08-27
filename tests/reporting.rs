@@ -91,6 +91,24 @@ fn mixed_package_and_root_scopes_are_both_visible_and_filterable() {
 }
 
 #[test]
+fn configured_in_root_cache_storage_is_not_reported_as_source() {
+    let root = TempDir::new().expect("create Root");
+    let cache = root.path().join("cache-storage");
+    write(cache.join("snapshot.json"), "{\"generated\": true}\n");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_cargo-sloc"))
+        .args(["--json", "--root-files", "include"])
+        .arg(root.path())
+        .env("CARGO_SLOC_CACHE_DIR", &cache)
+        .output()
+        .expect("run cargo-sloc with configured cache storage");
+    assert_success(&output);
+    let report: Value = serde_json::from_slice(&output.stdout).expect("parse JSON report");
+    assert!(report["rows"].as_array().expect("rows array").is_empty());
+    assert_eq!(report["total"]["files"], 0);
+}
+
+#[test]
 fn json_provenance_omits_projects_without_selected_packages() {
     let root = TempDir::new().expect("create Root");
     package_at(

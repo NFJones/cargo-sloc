@@ -376,10 +376,56 @@ fn store_stream_output(
 #[cfg(unix)]
 fn terminate_process(process_id: u32) {
     let process_id = i32::try_from(process_id).unwrap_or(i32::MAX);
+    #[cfg(target_os = "linux")]
+    terminate_linux_descendants(process_id);
     // SAFETY: `process_id` is the positive child PID assigned as its PGID above.
     if unsafe { libc::kill(-process_id, libc::SIGKILL) } != 0 {
         // SAFETY: the positive PID identifies the spawned direct child.
         let _ = unsafe { libc::kill(process_id, libc::SIGKILL) };
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn terminate_linux_descendants(process_id: i32) {
+    for _ in 0..3 {
+        let mut descendants = std::collections::BTreeSet::new();
+        let mut pending = vec![process_id];
+        while let Some(parent) = pending.pop() {
+            for entry in std::fs::read_dir("/proc").into_iter().flatten().flatten() {
+                let Ok(child) = entry.file_name().to_string_lossy().parse::<i32>() else {
+                    continue;
+                };
+                if child == process_id || descendants.contains(&child) {
+                    continue;
+                }
+                let Ok(stat) = std::fs::read_to_string(entry.path().join("stat")) else {
+                    continue;
+                };
+                let Some(fields) = stat.rsplit_once(") ") else {
+                    continue;
+                };
+                let Some(parent_id) = fields
+                    .1
+                    .split_whitespace()
+                    .nth(1)
+                    .and_then(|value| value.parse::<i32>().ok())
+                else {
+                    continue;
+                };
+                if parent_id == parent && descendants.insert(child) {
+                    pending.push(child);
+                }
+            }
+        }
+        if descendants.is_empty() {
+            thread::sleep(Duration::from_millis(5));
+            continue;
+        }
+        for descendant in descendants {
+            // SAFETY: `/proc` supplied a currently observed descendant of the owned child.
+            let _ = unsafe { libc::kill(descendant, libc::SIGKILL) };
+        }
+        thread::sleep(Duration::from_millis(5));
     }
 }
 
@@ -441,5 +487,40 @@ mod tests {
 
         assert!(matches!(error, ProcessError::Timeout { .. }));
         assert!(started.elapsed() < Duration::from_secs(2));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn subprocess_timeout_terminates_setsid_descendants() {
+        let directory = tempfile::tempdir().expect("create PID directory");
+        let pid_file = directory.path().join("escaped.pid");
+        let script = format!(
+            "setsid sh -c 'echo $$ > \"{}\"; sleep 30' & wait",
+            pid_file.display()
+        );
+        let mut command = Command::new("sh");
+        command.args(["-c", &script]);
+
+        let error = run_with_limits(
+            &mut command,
+            "setsid descendant probe".to_owned(),
+            Limits {
+                timeout: Duration::from_millis(100),
+                stream_bytes: 1024,
+            },
+        )
+        .expect_err("setsid descendant probe must time out");
+        assert!(matches!(error, ProcessError::Timeout { .. }));
+
+        let pid = std::fs::read_to_string(&pid_file)
+            .expect("read escaped descendant PID")
+            .trim()
+            .parse::<i32>()
+            .expect("parse escaped descendant PID");
+        let status = std::fs::read_to_string(format!("/proc/{pid}/stat"));
+        assert!(
+            status.is_err() || status.is_ok_and(|status| status.contains(") Z ")),
+            "escaped descendant {pid} remained runnable"
+        );
     }
 }

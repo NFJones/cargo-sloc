@@ -27,6 +27,46 @@ fn table_renders_package_counts_and_total_exactly() {
 }
 
 #[test]
+fn totals_aggregate_languages_across_scopes_after_root_file_filtering() {
+    let root = TempDir::new().expect("create Root");
+    package_at(root.path().join("first"), "first", "pub fn first() {}\n");
+    package_at(root.path().join("second"), "second", "pub fn second() {}\n");
+    write(root.path().join("first/tool.py"), "print('first')\n");
+    write(root.path().join("second/tool.py"), "print('second')\n");
+    write(root.path().join("tool.py"), "print('root')\n");
+
+    let included = run(root.path(), ["--totals"]);
+    assert_success(&included);
+    let included = String::from_utf8(included.stdout).expect("UTF-8 totals table");
+    assert!(included.starts_with(" Language ┆ Files ┆ Lines"));
+    assert!(!included.contains("Package"));
+    assert!(!included.contains("first"));
+    assert!(!included.contains("second"));
+    assert!(!included.contains("<root>"));
+    let python_rows = included
+        .lines()
+        .filter(|line| line.contains("Python"))
+        .collect::<Vec<_>>();
+    assert_eq!(python_rows.len(), 1);
+    assert_eq!(
+        python_rows[0].split('┆').map(str::trim).collect::<Vec<_>>(),
+        ["Python", "3", "3", "0", "0", "3", "n/a"]
+    );
+
+    let excluded = run(root.path(), ["--totals", "--root-files", "exclude"]);
+    assert_success(&excluded);
+    let excluded = String::from_utf8(excluded.stdout).expect("UTF-8 filtered totals table");
+    let python = excluded
+        .lines()
+        .find(|line| line.contains("Python"))
+        .expect("Python totals row");
+    assert_eq!(
+        python.split('┆').map(str::trim).collect::<Vec<_>>(),
+        ["Python", "2", "2", "0", "0", "2", "n/a"]
+    );
+}
+
+#[test]
 fn root_only_reports_use_one_structural_root_scope() {
     let root = TempDir::new().expect("create Root");
     write(

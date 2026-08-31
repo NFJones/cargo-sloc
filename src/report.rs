@@ -274,6 +274,8 @@ impl Report {
     pub fn render(&self) -> Result<Vec<u8>, AppError> {
         if self.selection.json {
             self.render_json()
+        } else if self.selection.totals {
+            self.render_totals_table().map(String::into_bytes)
         } else {
             self.render_table().map(String::into_bytes)
         }
@@ -311,6 +313,47 @@ impl Report {
 
         let mut output = table.to_string();
         output = remove_intra_scope_dividers(output, &self.packages);
+        while output.ends_with('\n') {
+            output.pop();
+        }
+        output.push('\n');
+        Ok(output)
+    }
+
+    fn render_totals_table(&self) -> Result<String, AppError> {
+        let mut totals = BTreeMap::<LanguageId, Counts>::new();
+        for row in &self.packages {
+            let counts = totals.entry(row.language).or_default();
+            *counts = counts.checked_add(row.counts)?;
+        }
+        let mut rows = totals.into_iter().collect::<Vec<_>>();
+        rows.sort_by(
+            |(left_language, left_counts), (right_language, right_counts)| {
+                right_counts
+                    .lines
+                    .cmp(&left_counts.lines)
+                    .then_with(|| left_language.cmp(right_language))
+            },
+        );
+
+        let mut table = Table::new();
+        table
+            .load_preset(UTF8_NO_BORDERS)
+            .set_header(Row::from(vec![
+                text_cell("Language"),
+                numeric_cell("Files"),
+                numeric_cell("Lines"),
+                numeric_cell("Blanks"),
+                numeric_cell("Comments"),
+                numeric_cell("Code"),
+                numeric_cell("Test"),
+            ]));
+        for (language, counts) in rows {
+            table.add_row(totals_table_row(&language.to_string(), counts));
+        }
+        table.add_row(totals_table_row("Total", self.total));
+
+        let mut output = table.to_string();
         while output.ends_with('\n') {
             output.pop();
         }
@@ -480,6 +523,21 @@ fn encoded_scope_identity(scope: &ScopeId) -> String {
 fn report_table_row(label: &str, language: &str, counts: Counts) -> Row {
     Row::from(vec![
         text_cell(sanitize_table_cell(label)),
+        text_cell(language),
+        numeric_cell(counts.files),
+        numeric_cell(counts.lines),
+        numeric_cell(counts.blanks),
+        numeric_cell(counts.comments),
+        numeric_cell(counts.code),
+        numeric_cell(match counts.test {
+            TestCount::Known(value) => value.to_string(),
+            TestCount::Unavailable => "n/a".to_owned(),
+        }),
+    ])
+}
+
+fn totals_table_row(language: &str, counts: Counts) -> Row {
+    Row::from(vec![
         text_cell(language),
         numeric_cell(counts.files),
         numeric_cell(counts.lines),
@@ -718,6 +776,7 @@ mod tests {
             target_includes: BTreeSet::new(),
             target_excludes: BTreeSet::new(),
             json: false,
+            totals: false,
         });
         report
             .package_projects
@@ -789,6 +848,7 @@ mod tests {
             target_includes: BTreeSet::new(),
             target_excludes: BTreeSet::new(),
             json: true,
+            totals: false,
         });
         report
             .package_projects
@@ -840,6 +900,7 @@ mod tests {
             target_includes: BTreeSet::new(),
             target_excludes: BTreeSet::new(),
             json: false,
+            totals: false,
         });
         for id in ["alpha", "beta"] {
             report

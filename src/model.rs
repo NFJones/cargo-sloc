@@ -260,4 +260,6 @@ pub struct Selection {
     pub target_excludes: BTreeSet<String>,
     /// Whether JSON output was requested.
     pub json: bool,
+    /// Whether terminal output aggregates all selected scopes by language.
+    pub totals: bool,
 }

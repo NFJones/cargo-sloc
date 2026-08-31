@@ -269,6 +269,7 @@ The command MUST support:
 - `--exclude-target SELECTOR` as defined in Section 6;
 - `--root-files include|exclude`, defaulting to `include`, for controlling
   files whose final Scope is the Root;
+- `--totals` for terminal output aggregated by language across selected Scopes;
 - `--json` as defined in Section 11;
 - `-h` and `--help`; and
 - `-V` and `--version`.
@@ -1073,6 +1074,14 @@ control characters, whether stdout is attached to a terminal or redirected.
 Its layout MUST NOT depend on terminal width, TTY state, or ambient styling.
 The complete table MUST be buffered deterministically and end with exactly one
 line feed.
+
+`--totals` MUST render a terminal table with no Scope or Package column. After
+all selection, target, feature, and Root-file filters have been applied, it
+MUST aggregate the resolved Scope/language rows into one row per displayed
+language. Its rows MUST be ordered by descending `Lines`, then language name,
+and its final `Total` row MUST retain the arithmetic aggregate of all language
+rows. `--totals` MUST be rejected with `--json`; JSON retains the Scope-resolved
+schema-version 3 rows defined below.
 
 ### 11.2 JSON
 

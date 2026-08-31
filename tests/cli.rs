@@ -179,6 +179,7 @@ fn help_and_version_exit_successfully_on_stdout() {
     assert!(help_text.contains("By default, every eligible Package"));
     assert!(help_text.contains("all features, all package targets, and supported Root files"));
     assert!(help_text.contains("--root-files <ROOT_FILES>"));
+    assert!(help_text.contains("--totals"));
     assert!(help_text.contains("cargo sloc --no-default-features --features serde"));
     assert!(help_text.contains("Emit schema-version 3 JSON instead of the terminal table"));
     assert!(help.stderr.is_empty());
@@ -197,6 +198,7 @@ fn usage_errors_use_status_two_and_leave_stdout_empty() {
     for arguments in [
         vec!["--exclude", "missing"],
         vec!["--exclude-target", "build-script:named"],
+        vec!["--json", "--totals"],
         vec!["--unknown-option"],
     ] {
         let output = run(arguments);

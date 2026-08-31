@@ -57,6 +57,7 @@ struct SelectionRecord<'a> {
     target_includes: Vec<&'a str>,
     target_excludes: Vec<&'a str>,
     json: bool,
+    totals: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -552,6 +553,7 @@ fn selection_key(selection: &Selection) -> io::Result<String> {
         target_includes: strings(&selection.target_includes),
         target_excludes: strings(&selection.target_excludes),
         json: selection.json,
+        totals: selection.totals,
     };
     serde_json::to_string(&record).map_err(io::Error::other)
 }

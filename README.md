@@ -86,6 +86,12 @@ cargo sloc --target wasm32-wasip1
 cargo sloc --json
 ```
 
+Aggregate every selected scope into one terminal row per language:
+
+```sh
+cargo sloc --totals
+```
+
 Package, feature, and standard target selectors follow Cargo syntax. An
 explicit `--package` selection reports only the selected Package scopes; it
 filters out `<root>`. Run `cargo sloc --help` for the complete option list.
@@ -141,6 +147,11 @@ not available. The table's final Test total is also `n/a` if any row has
 unavailable provenance. JSON represents unavailable Test counts as `null`. Output is
 deterministic, unstyled, and safe to redirect; use `--json` for machine-readable
 output.
+
+`--totals` collapses the terminal table across all selected Package and Root
+scopes into one row per language after package, target, feature, and Root-file
+filters are applied. It is incompatible with `--json`, whose schema-version 3
+rows retain their Scope identities.
 
 ## Analysis boundary
 

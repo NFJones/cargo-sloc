@@ -15,7 +15,7 @@ use crate::model::{Root, RootFilePolicy, Selection};
     version,
     about = "Source line counts for supported files beneath a directory",
     long_about = "Count supported, non-ignored source beneath PATH. By default, every eligible Package, all features, all package targets, and supported Root files are included. Reachable package Rust receives configuration-aware accounting; other recognized files are retained under their Package or the Root scope.",
-    after_help = "Examples:\n  cargo sloc\n  cargo sloc ../workspace\n  cargo sloc --features serde,simd\n  cargo sloc --no-default-features --features serde\n  cargo sloc --root-files exclude\n  cargo sloc --json"
+    after_help = "Examples:\n  cargo sloc\n  cargo sloc ../workspace\n  cargo sloc --features serde,simd\n  cargo sloc --no-default-features --features serde\n  cargo sloc --root-files exclude\n  cargo sloc --totals\n  cargo sloc --json"
 )]
 struct Arguments {
     /// Root directory to search for supported source and Cargo projects.
@@ -101,6 +101,10 @@ struct Arguments {
     /// Emit schema-version 3 JSON instead of the terminal table.
     #[arg(long)]
     json: bool,
+
+    /// Collapse the terminal table into one row per language across all selected scopes.
+    #[arg(long, conflicts_with = "json")]
+    totals: bool,
 }
 
 /// A parsed request or a fully rendered clap response.
@@ -183,6 +187,7 @@ where
         target_includes,
         target_excludes,
         json: parsed.json,
+        totals: parsed.totals,
     }))
 }
 

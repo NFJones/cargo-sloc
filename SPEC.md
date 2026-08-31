@@ -377,8 +377,10 @@ reachability claims; they MUST NOT silently reclassify files beneath an
 unselected Package root as Root-owned source. A file beneath an unselected
 Package root MAY still be included when it is explicitly reached by a selected
 Rust target, in which case Section 8 resolves its Scope from the selected graph
-claims. `--root-files exclude` MUST suppress only records whose final Scope is
-the Root. It MUST NOT alter Package selection or accounting.
+claims. An explicit `-p` or `--package` selection MUST suppress records whose
+final Scope is the Root. `--root-files exclude` MUST likewise suppress only
+records whose final Scope is the Root; it MUST NOT alter Package selection or
+accounting.
 
 ### 6.2 Default target selection
 

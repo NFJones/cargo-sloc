@@ -73,6 +73,12 @@ rows:
 cargo sloc --root-files exclude
 ```
 
+Selecting a package also excludes Root-scoped files:
+
+```sh
+cargo sloc --package my-package
+```
+
 Select a compilation target or emit schema-version 3 JSON:
 
 ```sh
@@ -80,8 +86,9 @@ cargo sloc --target wasm32-wasip1
 cargo sloc --json
 ```
 
-Package, feature, and standard target selectors follow Cargo syntax. Run
-`cargo sloc --help` for the complete option list.
+Package, feature, and standard target selectors follow Cargo syntax. An
+explicit `--package` selection reports only the selected Package scopes; it
+filters out `<root>`. Run `cargo sloc --help` for the complete option list.
 
 ## What is counted
 

@@ -107,10 +107,12 @@ fn unselected_package_trees_do_not_contribute_or_parse_sources() {
         root.path().join("unselected/tool.py"),
         "print('unselected')\n",
     );
+    write(root.path().join("root.py"), "print('root')\n");
 
     let output = run(root.path(), ["--json", "--package", "selected"]);
     assert_success(&output);
     let report: Value = serde_json::from_slice(&output.stdout).expect("parse JSON report");
+    assert_eq!(report["configuration"]["root_files"], "exclude");
     let rows = report["rows"].as_array().expect("rows array");
     assert!(rows.iter().all(|row| row["scope"]["name"] == "selected"));
     assert!(rows.iter().all(|row| row["language"] != "Python"));

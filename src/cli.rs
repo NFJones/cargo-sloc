@@ -163,12 +163,19 @@ where
         .collect::<Result<_, _>>()
         .map_err(clap_usage_error)?;
 
+    let package_selectors: BTreeSet<_> = parsed.packages.into_iter().collect();
+    let root_files = if package_selectors.is_empty() {
+        parsed.root_files
+    } else {
+        RootFilePolicy::Exclude
+    };
+
     Ok(ParseOutcome::Selection(Selection {
         root: Root::resolve(&parsed.root, current_directory)?,
-        package_selectors: parsed.packages.into_iter().collect(),
+        package_selectors,
         workspace: parsed.workspace,
         package_exclude_selectors: parsed.exclude.into_iter().collect(),
-        root_files: parsed.root_files,
+        root_files,
         all_features: parsed.all_features || (!features_requested && !parsed.no_default_features),
         no_default_features: parsed.no_default_features,
         features,

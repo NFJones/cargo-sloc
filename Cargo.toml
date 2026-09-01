@@ -1,6 +1,6 @@
 [package]
 name = "cargo-sloc"
-version = "0.1.6"
+version = "0.1.7"
 edition = "2024"
 rust-version = "1.95"
 description = "A Cargo subcommand for configuration-aware Rust source line counts"
